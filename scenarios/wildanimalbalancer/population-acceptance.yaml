@@ -13,6 +13,12 @@ server:
   memoryMb: 1536
   startupTimeoutSeconds: 240
   reuseWorldOnRestart: true
+  properties:
+    view-distance: 4
+    simulation-distance: 4
+    spawn-animals: false
+    spawn-npcs: false
+    generate-structures: false
 steps:
   - id: configure
     name: Configure a fast, bounded, single-species live census
@@ -50,7 +56,9 @@ steps:
       - { type: server.start }
       - { type: console.command, command: "op WildlifeOp" }
       - { type: console.command, command: "gamerule spawn_mobs false" }
+      - { type: wait.duration, seconds: 5 }
       - { type: console.command, command: "kill @e[type=!minecraft:player]" }
+      - { type: wait.duration, seconds: 2 }
     assertions:
       - { type: log.present, pattern: "WildAnimalBalancer running" }
       - { type: log.present, pattern: "Prometheus metrics at http://127\\.0\\.0\\.1:${port.metrics}/metrics" }
