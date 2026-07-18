@@ -39,6 +39,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
@@ -194,6 +195,18 @@ public final class HarnessBridgeMod implements ModInitializer {
             inventory.add(item);
         }
         result.add("inventory", inventory);
+        JsonArray effects = new JsonArray();
+        for (MobEffectInstance effect : player.getActiveEffects()) {
+            effects.add(object(
+                    "id", effect.getEffect().unwrapKey()
+                            .map(key -> key.identifier().toString())
+                            .orElse("unknown"),
+                    "amplifier", effect.getAmplifier(),
+                    "durationTicks", effect.getDuration(),
+                    "ambient", effect.isAmbient(),
+                    "visible", effect.isVisible()));
+        }
+        result.add("effects", effects);
         return result;
     }
 

@@ -3,6 +3,7 @@ dist/
 .gradle/
 /build/
 bridge/build/
+adapters/*/build/
 client/target/
 .ouro-harness/
 artifacts/

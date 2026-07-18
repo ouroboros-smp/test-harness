@@ -1,0 +1,34 @@
+schemaVersion: 1
+id: blindfold/client-gametest
+title: Blindfold 1.21.11 real-client effect, command, and sprint acceptance
+description: Builds Blindfold and launches Fabric's client GameTest runtime to exercise the real local player, effects, commands, rendering screenshots, re-assertion, cleanup, and test-only sprint predicate access.
+issues: [29]
+tags: [fabric, minecraft-1.21.11, client-only, gametest, blindfold]
+pins:
+  minecraft: 1.21.11
+  loader: 0.19.2
+  fabricApi: 0.141.4+1.21.11
+  java: 21
+  protocol: 774
+artifacts:
+  consumer: { required: true, destination: none, description: Packaged Blindfold client jar }
+variables:
+  blindfoldRepository: ../LocalBlindness
+server:
+  controlBridge: false
+steps:
+  - id: client_gametest
+    name: Build the mod and run Fabric's actual client GameTest suite
+    timeoutSeconds: 600
+    actions:
+      - type: process.exec
+        command: ["${platform.gradleWrapper}", build, runClientGameTest, --console=plain, --stacktrace]
+        cwd: "${blindfoldRepository}"
+        java: 21
+        timeoutMs: 600000
+        as: blindfold-gametest-output
+        artifactName: blindfold-client-gametest.log
+    assertions:
+      - { type: value.json, value: blindfold-gametest-output, operator: contains, expected: BUILD SUCCESSFUL }
+      - { type: value.json, value: blindfold-gametest-output, operator: contains, expected: "[Blindfold] ON" }
+      - { type: value.json, value: blindfold-gametest-output, operator: contains, expected: "style set to darkness" }

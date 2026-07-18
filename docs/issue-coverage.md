@@ -13,25 +13,20 @@ harness-only bridge on 2026-07-18.
 | #4 | Kinship aura/command soak | `kinship/stress-soak` |
 | #5 | Pinnable composite action and stable outputs/artifacts | `action.yml`, `harness/action-contract` |
 | #6 | Kinship server-thread/barrier/logout/generation regressions | `kinship/thread-lifecycle-regressions` |
-| #7 | Rooms discovery settle/cooldown/retry/undefined | `rooms/discovery-smoke` |
-| #8 | Rooms server-thread/chunk safe degradation | `rooms/thread-safe-scans` |
-| #9 | Rooms cross-chunk travel effect reconciliation | `rooms/travel-effects` |
-| #10 | Rooms native dialogs and administration | `rooms/dialog-admin` |
-| #11 | Rooms sleep occupancy/streak semantics | `rooms/sleep-semantics` |
-| #12 | Rooms restart/late-world persistence | `rooms/restart-late-world` |
-| #13 | Rooms nameplate lifecycle/entity leak checks | `rooms/nameplate-lifecycle` |
-| #14 | Rooms presence/abandonment/tombstones | `rooms/abandonment` |
-| #15 | Rooms discovery amplification soak | `rooms/discovery-soak` |
-| #16 | Rooms placement attribution/claim ceremony | `rooms/placement-claim` |
+| #7–#16 | Rooms Fabric discovery, diagnostics, permissions, persistence, reload, restart, and lifecycle behavior | `rooms/runtime-acceptance` |
 | #17 | KeepGear ten-case release acceptance suite | `keepgear/acceptance` |
-| #18 | Coffer platform/lifecycle readiness | `coffer/platform-readiness` |
-| #19 | Coffer two-player trust/access/persistence | `coffer/access-persistence` |
-| #20 | Coffer double-chest lifecycle security | `coffer/double-chest` |
-| #21 | Coffer extraction authorization/soak | `coffer/automation` |
-| #22 | Coffer server-only packaging/production interoperability | `coffer/release-interop` |
+| #18–#22 | Coffer Fabric placement, double chest, trust/access policy, API, commands, and restart persistence | `coffer/runtime-acceptance` |
+| #24 | Mehen MariaDB/Redis ban enforcement, expiry, pardon, and restart persistence | `mehen/governance-acceptance` |
+| #25 | Patrol commands, enforcer lifecycle, reload, and restart | `patrol/runtime-acceptance` |
+| #26 | Watershed spring commands, save, restart persistence, and removal | `watershed/spring-lifecycle` |
+| #27 | WildAnimalBalancer census, bounded top-up, metrics, reload, and persistence | `wildanimalbalancer/population-acceptance` |
+| #28 | OuroMetrics 1.21.11 exporter, config, HTTP metrics, and restart lifecycle | `ourometrics/exporter-lifecycle` |
+| #29 | Blindfold 1.21.11 real-client commands, effects, external removal, and sprint behavior | `blindfold/client-gametest` |
 
-`node dist/cli.js validate --require-all-issues` fails if any issue from 1
-through 22 loses scenario coverage. Unit tests enforce the same invariant.
+`node dist/cli.js validate --require-all-issues` fails if any tracked issue
+loses scenario coverage. Unit tests enforce the same invariant, and a separate
+portfolio contract test proves that every maintained scenario is executed by
+`config/portfolio.yaml` exactly once.
 
 Consumer scenarios intentionally consume packaged jars. The harness does not
 copy unit or GameTest logic from a consumer repo. A consumer release gate should

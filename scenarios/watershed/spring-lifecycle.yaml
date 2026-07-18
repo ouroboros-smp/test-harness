@@ -1,0 +1,78 @@
+schemaVersion: 1
+id: watershed/spring-lifecycle
+title: Watershed spring commands, save, restart persistence, and removal
+description: Exercises the packaged server-only jar with vanilla clients and its authoritative spring persistence surface.
+issues: [26]
+tags: [fabric, minecraft-26.2, server, vanilla-client, spring, persistence]
+artifacts:
+  watershed: { required: true, description: Packaged Watershed Fabric server jar }
+clients:
+  - { name: operator, username: WatershedOp }
+  - { name: visitor, username: WatershedGuest }
+server:
+  memoryMb: 1536
+  startupTimeoutSeconds: 240
+  reuseWorldOnRestart: true
+steps:
+  - id: start
+    name: Start the server-only mod and join with vanilla clients
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op WatershedOp" }
+    assertions:
+      - { type: log.present, pattern: "Watershed Fabric server mod initialized" }
+      - { type: log.present, pattern: "Watershed hosts ready for 1 world" }
+
+  - id: permission
+    name: Keep the administrative command tree hidden from ordinary players
+    actions:
+      - { type: client.command, client: visitor, command: "watershed spring list" }
+      - { type: wait.duration, milliseconds: 1000 }
+    assertions:
+      - { type: client.event, client: visitor, event: message, pattern: "Unknown or incomplete command|permission" }
+
+  - id: add_save
+    name: Register a spring through the real Brigadier command and save it
+    actions:
+      - { type: client.command, client: operator, command: "watershed spring add 100 0 80 0" }
+      - { type: wait.duration, seconds: 2 }
+      - { type: client.command, client: operator, command: "watershed spring list" }
+      - { type: client.command, client: operator, command: "watershed perf" }
+      - { type: client.command, client: operator, command: "watershed save" }
+      - { type: wait.duration, seconds: 2 }
+    assertions:
+      - { type: client.event, client: operator, event: message, pattern: "Spring registered at \\(0, 80, 0\\) producing 100" }
+      - { type: client.event, client: operator, event: message, pattern: "Springs: 1" }
+      - { type: client.event, client: operator, event: message, pattern: "state save queued" }
+      - { type: file.exists, path: config/watershed/data/minecraft_overworld.json }
+
+  - id: restart
+    name: Reload the saved spring after a clean server restart
+    timeoutSeconds: 300
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: client.command, client: operator, command: "watershed spring list" }
+      - { type: wait.duration, seconds: 1 }
+    assertions:
+      - { type: client.event, client: operator, event: message, pattern: "Springs: 1", count: 2, operator: gte }
+      - { type: log.absent, pattern: "Failed to load watershed (?:state|terrain)" }
+
+  - id: remove
+    name: Remove the persisted spring and reset performance history
+    actions:
+      - { type: client.command, client: operator, command: "watershed spring remove 0 80 0" }
+      - { type: wait.duration, seconds: 2 }
+      - { type: client.command, client: operator, command: "watershed spring list" }
+      - { type: client.command, client: operator, command: "watershed perf reset" }
+      - { type: wait.duration, seconds: 1 }
+    assertions:
+      - { type: client.event, client: operator, event: message, pattern: "Spring removed" }
+      - { type: client.event, client: operator, event: message, pattern: "Springs: 0" }
+      - { type: client.event, client: operator, event: message, pattern: "perf history reset" }
+      - { type: log.absent, pattern: "Watershed (?:queued action|tick) failed|Failed to save watershed" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

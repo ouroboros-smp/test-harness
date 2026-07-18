@@ -42,6 +42,9 @@ outputs:
   report:
     description: Machine-readable per-step JSON report.
     value: ${{ steps.run.outputs.report }}
+  html:
+    description: Self-contained human-readable report dashboard.
+    value: ${{ steps.run.outputs.html }}
   junit:
     description: JUnit-compatible XML report.
     value: ${{ steps.run.outputs.junit }}
@@ -111,6 +114,7 @@ runs:
         {
           echo "passed=$passed"
           echo "report=$output/report.json"
+          echo "html=$output/report.html"
           echo "junit=$output/junit.xml"
           echo "server-log=$output/artifacts/harness-server.log"
           echo "artifact-directory=$output"

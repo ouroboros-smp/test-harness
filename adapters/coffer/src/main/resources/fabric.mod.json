@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "ouro_harness_coffer_adapter",
+  "version": "${version}",
+  "name": "Ouroboros Harness Coffer Adapter",
+  "description": "Test-only structured Coffer state and offline identity adapter.",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.ouroboros.harness.adapter.coffer.CofferHarnessAdapterMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "coffer": "*",
+    "ouro_harness_bridge": "*"
+  }
+}

@@ -13,7 +13,8 @@ mod interoperability, and bounded failure handling.
 ## Requirements
 
 - Node.js 24 or newer
-- Java 25
+- Java 25 for Minecraft 26.2 and Java 21 for the included Minecraft 1.21.11
+  compatibility targets
 - Rustup (the repository pins `nightly-2026-07-13` for the exact-version
   headless protocol client)
 - Network access on the first run (downloads are cached and checksum verified)
@@ -39,12 +40,45 @@ Run a consumer scenario with packaged jars:
 
 ```bash
 npm run harness -- run keepgear/acceptance \
-  --artifact consumer=../KeepGear/fabric/build/libs/keepgear-1.2.0.jar \
+  --artifact consumer=../KeepGear/fabric/build/libs/keepgear-2.0.1-fabric.jar \
   --output artifacts/keepgear
 ```
 
 Use `--dry-run` to resolve and validate a scenario without downloading or
 launching Minecraft. `npm run harness -- list` prints every included scenario.
+
+Run the complete Fabric portfolio—clean builds, repository tests, packaged-jar
+acceptance, real-client GameTests, live servers, restarts, services, and soaks—
+with one command:
+
+```bash
+npm run harness -- portfolio --output artifacts/full-portfolio
+```
+
+The catalog in `config/portfolio.yaml` is the inventory of tested repositories,
+build commands, Java versions, packaged artifacts, and scenarios. Override a
+checkout without editing the catalog, for example
+`--variable watershedRepository=/path/to/checkout`.
+
+## Reading reports
+
+Every run writes four complementary views to its output directory:
+
+- `report.html` is the self-contained human dashboard. It leads with status,
+  timing, step counts, and performance, then provides filters and expandable
+  evidence, failures, findings, pins, and portable artifact links.
+- `summary.md` is a GitHub-friendly overview with the same important sections
+  and collapsible step evidence.
+- `report.json` is the complete schema-validated automation contract.
+- `junit.xml` integrates with CI test-report consumers.
+
+Open `report.html` directly from a local run or after downloading a CI artifact;
+it has no external assets or network dependencies.
+
+A portfolio run writes the same four top-level files. Its dashboard first shows
+the pass rate across repositories, builds, and scenarios, then links to every
+build log and individual scenario dashboard. The runner continues after a
+failure so one report describes the entire portfolio.
 
 ## Extending the harness
 
@@ -62,7 +96,8 @@ bearer token, runs Minecraft mutations on the server thread, emits NDJSON
 events, and is never copied into consumer release jars.
 
 See [Architecture](docs/architecture.md), [Scenario Authoring](docs/scenarios.md),
-and [Issue Coverage](docs/issue-coverage.md) for the complete contracts.
+[Portfolio Catalog](docs/portfolio.md), and [Issue Coverage](docs/issue-coverage.md)
+for the complete contracts.
 
 ## CI action
 
@@ -75,5 +110,5 @@ Consumer repositories can pin this repository as a composite action:
     consumer-jar: build/libs/keepgear.jar
 ```
 
-Stable outputs are `passed`, `report`, `junit`, `server-log`, and
+Stable outputs are `passed`, `report`, `html`, `junit`, `server-log`, and
 `artifact-directory`. The action uploads evidence even when the scenario fails.

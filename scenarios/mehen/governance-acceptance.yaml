@@ -1,0 +1,134 @@
+schemaVersion: 1
+id: mehen/governance-acceptance
+title: Mehen MariaDB/Redis ban enforcement, expiry, pardon, and restart persistence
+description: Runs the packaged Fabric mod against disposable real services and exercises its DB-authoritative login and command surfaces.
+issues: [24]
+tags: [fabric, minecraft-26.2, server, mariadb, redis, ban, restart]
+ports: [mariadb, redis]
+artifacts:
+  mehen: { required: true, description: Packaged Mehen Fabric server jar }
+clients:
+  - { name: moderator, username: MehenModerator }
+  - { name: target, username: MehenTarget }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  shutdownTimeoutSeconds: 60
+  reuseWorldOnRestart: true
+steps:
+  - id: services
+    name: Start isolated MariaDB and Redis dependencies
+    timeoutSeconds: 300
+    actions:
+      - type: service.start
+        name: mariadb
+        image: mariadb:11.4
+        ports: { "3306": "${port.mariadb}" }
+        environment:
+          MARIADB_DATABASE: governance
+          MARIADB_USER: mehen
+          MARIADB_PASSWORD: mehen-test-password
+          MARIADB_ROOT_PASSWORD: root-test-password
+        waitForLog: "ready for connections"
+        waitTimeoutMs: 180000
+      - type: service.start
+        name: redis
+        image: redis:7.4-alpine
+        ports: { "6379": "${port.redis}" }
+        waitForLog: "Ready to accept connections"
+        waitTimeoutMs: 120000
+
+  - id: configure
+    name: Point the packaged mod at the isolated services
+    actions:
+      - type: file.write
+        path: config/mehen/mehen.json
+        content:
+          database:
+            jdbc-url: "jdbc:mariadb://127.0.0.1:${port.mariadb}/governance"
+            username: mehen
+            password: mehen-test-password
+            pool-size: 4
+          redis:
+            host: 127.0.0.1
+            port: "${port.redis}"
+
+  - id: start
+    name: Migrate the governance schema and accept unbanned players
+    timeoutSeconds: 360
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op MehenModerator" }
+    assertions:
+      - { type: log.present, pattern: "Mehen enabled: DB-authoritative ban enforcement active" }
+      - { type: bridge.json, path: /v1/players, operator: contains, expected: MehenTarget }
+      - { type: log.absent, pattern: "Mehen failed to start|Governance database unavailable" }
+
+  - id: active_ban
+    name: Issue an attributed active ban and reject the next login
+    timeoutSeconds: 120
+    actions:
+      - { type: client.command, client: moderator, command: "mehen ban MehenTarget 1h harness-active-ban --source harness" }
+      - { type: wait.duration, seconds: 3 }
+      - { type: client.reconnect, client: target, allowFailure: true, timeoutMs: 20000, as: active-ban-denial }
+      - type: service.exec
+        name: mariadb
+        command: [mariadb, "-umehen", "-pmehen-test-password", governance, -N, -e, "SELECT COUNT(*) FROM bans WHERE minecraft_uuid='1efc7b06-f106-30aa-9f26-c4eb69c93bea' AND active=1 AND source='harness';"]
+        as: active-ban-rows
+    assertions:
+      - { type: client.event, client: moderator, event: message, pattern: "Banned MehenTarget" }
+      - { type: log.present, pattern: "MehenTarget lost connection: You have been banned: harness-active-ban" }
+      - { type: value.json, value: active-ban-denial, operator: contains, expected: "You are banned from this server. Expires:" }
+      - { type: value.json, value: active-ban-rows, operator: contains, expected: "1" }
+
+  - id: pardon
+    name: Pardon through the public command and allow reconnection
+    timeoutSeconds: 120
+    actions:
+      - { type: client.command, client: moderator, command: "mehen pardon 1efc7b06-f106-30aa-9f26-c4eb69c93bea" }
+      - { type: wait.duration, seconds: 2 }
+      - { type: client.reconnect, client: target, timeoutMs: 30000 }
+    assertions:
+      - { type: client.event, client: moderator, event: message, pattern: "Pardoned 1efc7b06" }
+      - { type: bridge.json, path: "/v1/player/state?name=MehenTarget", jsonPath: name, expected: MehenTarget }
+
+  - id: expiry
+    name: Let a short ban expire and admit the player without manual database edits
+    timeoutSeconds: 120
+    actions:
+      - { type: client.command, client: moderator, command: "mehen ban MehenTarget 1s harness-expired-ban --source harness" }
+      - { type: wait.duration, seconds: 4 }
+      - { type: client.reconnect, client: target, timeoutMs: 30000 }
+    assertions:
+      - { type: bridge.json, path: "/v1/player/state?name=MehenTarget", jsonPath: name, expected: MehenTarget }
+      - { type: log.absent, pattern: "Failed to ban MehenTarget|Ban check failed" }
+
+  - id: restart
+    name: Preserve an active database ban across a clean Minecraft restart
+    timeoutSeconds: 420
+    actions:
+      - { type: client.command, client: moderator, command: "mehen ban MehenTarget 1h harness-restart-ban --source harness" }
+      - { type: wait.duration, seconds: 3 }
+      - { type: server.restart, reconnect: false }
+      - { type: client.reconnect, client: moderator, timeoutMs: 30000 }
+      - { type: client.reconnect, client: target, allowFailure: true, timeoutMs: 20000, as: restart-ban-denial }
+    assertions:
+      - { type: log.present, pattern: "MehenTarget lost connection: You have been banned: harness-restart-ban" }
+      - { type: value.json, value: restart-ban-denial, operator: contains, expected: "You are banned from this server. Expires:" }
+      - { type: log.present, pattern: "Mehen stopped cleanly" }
+      - { type: log.present, pattern: "Mehen enabled: DB-authoritative ban enforcement active", count: 2, operator: gte }
+
+  - id: final_pardon
+    name: Leave the shared governance database in an unbanned state
+    actions:
+      - { type: client.command, client: moderator, command: "mehen pardon 1efc7b06-f106-30aa-9f26-c4eb69c93bea" }
+      - { type: wait.duration, seconds: 2 }
+      - { type: client.reconnect, client: target, timeoutMs: 30000 }
+    assertions:
+      - { type: bridge.json, path: "/v1/player/state?name=MehenTarget", jsonPath: name, expected: MehenTarget }
+
+  - id: stop
+    name: Stop Minecraft before service log capture and cleanup
+    always: true
+    actions:
+      - { type: server.stop }

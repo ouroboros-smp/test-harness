@@ -3,9 +3,10 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { clientExecutable } from "./client.js";
 import { errorMessage, HarnessError } from "./errors.js";
-import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, resolveScenario } from "./manifest.js";
+import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, resolveScenario, TRACKED_ISSUES } from "./manifest.js";
+import { runPortfolio } from "./portfolio.js";
 import { runScenario } from "./runner.js";
-import type { RunOptions } from "./types.js";
+import type { JsonPrimitive, RunOptions } from "./types.js";
 import { fileExists, withTimeout } from "./utils.js";
 
 interface ParsedArgs {
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
     case "list": await listScenarios(args.flags.has("json")); return;
     case "validate": await validateScenarios(args.flags.has("require-all-issues"), args.flags.has("json")); return;
     case "doctor": await doctor(args.flags.has("json")); return;
+    case "portfolio": await portfolio(args); return;
     case "run": {
       const reference = args.positionals[0];
       if (!reference) throw new HarnessError("USAGE", "run requires a scenario id or path");
@@ -39,6 +41,7 @@ Usage:
   ouro-harness list [--json]
   ouro-harness validate [--require-all-issues] [--json]
   ouro-harness doctor [--json]
+  ouro-harness portfolio [options]
   ouro-harness run <scenario-id|path> [options]
   ouro-harness smoke [options]
 
@@ -49,9 +52,18 @@ Run options:
   --minecraft VERSION    Override the scenario/default Minecraft pin
   --loader VERSION       Override the Fabric Loader pin
   --fabric-api VERSION   Override the Fabric API pin
+  --variable NAME=VALUE  Override a scenario variable (repeatable)
   --dry-run               Resolve and validate without launching Minecraft
   --keep-run-directory    Retain generated server state (artifacts are always retained)
   --verbose               Stream full server output
+
+Portfolio options:
+  --config PATH           Portfolio catalog (default: config/portfolio.yaml)
+  --output PATH           Aggregate and per-mod evidence directory
+  --cache PATH            Shared Minecraft download cache
+  --variable NAME=VALUE  Override a catalog/scenario variable (repeatable)
+  --keep-run-directory    Retain generated server state
+  --verbose               Stream build and server output
 `);
 }
 
@@ -81,7 +93,7 @@ async function validateScenarios(requireAllIssues: boolean, asJson: boolean): Pr
   };
   if (asJson) console.log(JSON.stringify(output, null, 2));
   else {
-    console.log(`Validated ${entries.length} scenarios; issue coverage ${output.coveredIssues.length}/22.`);
+    console.log(`Validated ${entries.length} scenarios; issue coverage ${output.coveredIssues.length}/${TRACKED_ISSUES.length}.`);
     for (const failure of failures) console.error(`- ${failure}`);
   }
   if (failures.length) throw new HarnessError("VALIDATION_FAILED", failures.join("; "));
@@ -118,7 +130,10 @@ async function doctor(asJson: boolean): Promise<void> {
 }
 
 async function run(reference: string, args: ParsedArgs): Promise<void> {
-  const { scenario } = await resolveScenario(reference);
+  const { scenario: resolvedScenario } = await resolveScenario(reference);
+  const scenario = structuredClone(resolvedScenario);
+  const variables = { ...scenario.variables, ...parseVariables(args.flags.get("variable") ?? []) };
+  scenario.variables = variables;
   const artifacts: Record<string, string> = {};
   for (const value of args.flags.get("artifact") ?? []) {
     const index = value.indexOf("=");
@@ -144,16 +159,48 @@ async function run(reference: string, args: ParsedArgs): Promise<void> {
   }, options);
   console.log(`${report.status.toUpperCase()} ${report.scenario.id}`);
   console.log(`Report: ${report.artifacts.report}`);
+  console.log(`Readable report: ${report.artifacts.html}`);
   if (report.status === "failed") {
     console.error(report.failureSummary);
     process.exitCode = 1;
   }
 }
 
+async function portfolio(args: ParsedArgs): Promise<void> {
+  const report = await runPortfolio({
+    ...(lastFlag(args, "config") ? { config: lastFlag(args, "config")! } : {}),
+    ...(lastFlag(args, "output") ? { output: lastFlag(args, "output")! } : {}),
+    ...(lastFlag(args, "cache") ? { cache: lastFlag(args, "cache")! } : {}),
+    variables: parseVariables(args.flags.get("variable") ?? []),
+    keepRunDirectory: args.flags.has("keep-run-directory"),
+    verbose: args.flags.has("verbose"),
+  });
+  console.log(`${report.status.toUpperCase()} portfolio`);
+  console.log(`Report: ${report.artifacts.report}`);
+  console.log(`Readable report: ${report.artifacts.html}`);
+  if (report.status === "failed") process.exitCode = 1;
+}
+
+function parseVariables(values: string[]): Record<string, JsonPrimitive> {
+  const variables: Record<string, JsonPrimitive> = {};
+  for (const value of values) {
+    const index = value.indexOf("=");
+    if (index < 1) throw new HarnessError("USAGE", `Invalid --variable ${value}; expected NAME=VALUE`);
+    const raw = value.slice(index + 1);
+    let parsed: JsonPrimitive = raw;
+    try {
+      const candidate = JSON.parse(raw) as unknown;
+      if (candidate === null || ["string", "number", "boolean"].includes(typeof candidate)) parsed = candidate as JsonPrimitive;
+    } catch { /* preserve an unquoted string */ }
+    variables[value.slice(0, index)] = parsed;
+  }
+  return variables;
+}
+
 function parseArgs(values: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags = new Map<string, string[]>();
-  const valueFlags = new Set(["artifact", "output", "cache", "minecraft", "loader", "fabric-api"]);
+  const valueFlags = new Set(["artifact", "variable", "output", "cache", "config", "minecraft", "loader", "fabric-api"]);
   for (let index = 0; index < values.length; index++) {
     const value = values[index]!;
     if (!value.startsWith("--")) {

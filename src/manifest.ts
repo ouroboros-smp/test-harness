@@ -17,6 +17,7 @@ const ACTION_TYPES = new Set([
   "client.command",
   "client.move",
   "client.look",
+  "client.select_hotbar",
   "client.use_block",
   "client.place_block",
   "client.break_block",
@@ -33,6 +34,11 @@ const ACTION_TYPES = new Set([
   "sqlite.query",
   "soak.run",
   "adapter.invoke",
+  "http.request",
+  "service.start",
+  "service.exec",
+  "service.stop",
+  "process.exec",
 ]);
 
 const ASSERTION_TYPES = new Set([
@@ -51,6 +57,7 @@ const ASSERTION_TYPES = new Set([
   "sqlite.query",
   "command.output",
   "adapter.assert",
+  "value.json",
 ]);
 
 export function repositoryRoot(): string {
@@ -158,7 +165,12 @@ export function validateScenario(value: unknown): string[] {
   return failures;
 }
 
-export function issueCoverage(scenarios: Scenario[], expected = Array.from({ length: 22 }, (_, index) => index + 1)) {
+export const TRACKED_ISSUES = [
+  ...Array.from({ length: 22 }, (_, index) => index + 1),
+  24, 25, 26, 27, 28, 29,
+];
+
+export function issueCoverage(scenarios: Scenario[], expected = TRACKED_ISSUES) {
   const coverage = new Map<number, string[]>();
   for (const scenario of scenarios) {
     for (const issue of scenario.issues) coverage.set(issue, [...(coverage.get(issue) ?? []), scenario.id]);

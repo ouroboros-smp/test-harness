@@ -1,0 +1,98 @@
+schemaVersion: 1
+id: wildanimalbalancer/population-acceptance
+title: WildAnimalBalancer census, bounded top-up, metrics, reload, and persistence
+description: Uses a deterministic low target to exercise the live population balancer without exact random spawn assertions.
+issues: [27]
+tags: [fabric, minecraft-26.2, server, vanilla-client, animals, metrics, restart]
+ports: [metrics]
+artifacts:
+  wildanimalbalancer: { required: true, description: Packaged WildAnimalBalancer Fabric server jar }
+clients:
+  - { name: operator, username: WildlifeOp }
+server:
+  memoryMb: 1536
+  startupTimeoutSeconds: 240
+  reuseWorldOnRestart: true
+steps:
+  - id: configure
+    name: Configure a fast, bounded, single-species live census
+    actions:
+      - type: file.write
+        path: config/wildanimalbalancer/config.yml
+        content: |
+          cycle-seconds: 1
+          scan-radius: 32
+          base-target: 2
+          per-additional-player: 0
+          max-target: 2
+          max-per-cycle: 2
+          deficit-cycles: 1
+          cell-hourly-budget: 2
+          persistent-spawns: true
+          min-spawn-distance: 8
+          spawn-tries: 100
+          min-sky-light: 0
+          animals: [minecraft:cow]
+          vanilla-biome-defaults: false
+          biome-animals: {}
+          enabled-worlds: [minecraft:overworld]
+          log-spawns: true
+          spawn-log-file: true
+          status-log-cycles: 0
+          metrics:
+            enabled: true
+            bind: 127.0.0.1
+            port: ${port.metrics}
+
+  - id: start
+    name: Start the packaged mod and join with a vanilla client
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op WildlifeOp" }
+      - { type: console.command, command: "gamerule spawn_mobs false" }
+      - { type: console.command, command: "kill @e[type=!minecraft:player]" }
+    assertions:
+      - { type: log.present, pattern: "WildAnimalBalancer running" }
+      - { type: log.present, pattern: "Prometheus metrics at http://127\\.0\\.0\\.1:${port.metrics}/metrics" }
+
+  - id: census
+    name: Run the census and top up within the configured hard bound
+    timeoutSeconds: 90
+    actions:
+      - { type: wait.duration, seconds: 12 }
+      - { type: client.command, client: operator, command: "wildlife status" }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: wildlife-metrics }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:cow", jsonPath: "0.type", expected: minecraft:cow }
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:cow", jsonPath: "2", operator: absent }
+      - { type: value.json, value: wildlife-metrics, jsonPath: body, operator: contains, expected: wildlife_census_total }
+      - { type: value.json, value: wildlife-metrics, jsonPath: body, operator: contains, expected: wildlife_spawned_animals_total }
+      - { type: client.event, client: operator, event: message, pattern: "Censuses:|Spawned:" }
+      - { type: file.exists, path: config/wildanimalbalancer/spawn-log.jsonl }
+
+  - id: reload
+    name: Replace the runtime through the supported asynchronous reload path
+    actions:
+      - { type: client.command, client: operator, command: "wildlife reload" }
+      - { type: wait.duration, seconds: 2 }
+    assertions:
+      - { type: client.event, client: operator, event: message, pattern: "config reload requested" }
+      - { type: client.event, client: operator, event: message, pattern: "config reloaded" }
+      - { type: log.present, pattern: "WildAnimalBalancer runtime replaced" }
+
+  - id: restart
+    name: Preserve spawned population without amplification across restart
+    timeoutSeconds: 300
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: wait.duration, seconds: 5 }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:cow", jsonPath: "0.type", expected: minecraft:cow }
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:cow", jsonPath: "2", operator: absent }
+      - { type: log.absent, pattern: "Could not reload WildAnimalBalancer config|census failed|entity amplification" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

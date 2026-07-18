@@ -3,16 +3,19 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, validateScenario } from "./manifest.js";
+import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, TRACKED_ISSUES, validateScenario } from "./manifest.js";
 
-test("all issue contracts load with unique ids and complete 1-22 coverage", async () => {
+test("all issue contracts load with unique ids and explicit tracked-issue coverage", async () => {
   const entries = await loadAllScenarios();
-  assert.equal(entries.length, 22);
+  assert.ok(entries.length > 0);
   const ids = entries.map(({ scenario }) => scenario.id);
   assert.equal(new Set(ids).size, ids.length);
   const coverage = issueCoverage(entries.map(({ scenario }) => scenario));
   assert.deepEqual(coverage.missing, []);
-  assert.deepEqual([...coverage.coverage.keys()].sort((a, b) => a - b), Array.from({ length: 22 }, (_, index) => index + 1));
+  assert.deepEqual(
+    [...coverage.coverage.keys()].sort((a, b) => a - b),
+    TRACKED_ISSUES,
+  );
 });
 
 test("Fabric runtime pins are internally consistent", async () => {
@@ -34,7 +37,7 @@ test("composite action exposes the stable consumer contract", async () => {
   for (const input of ["scenario", "consumer-jar", "minecraft-version", "loader-version", "fabric-api-version"]) {
     assert.ok(input in inputs, `missing action input ${input}`);
   }
-  for (const output of ["passed", "report", "junit", "server-log", "artifact-directory"]) {
+  for (const output of ["passed", "report", "html", "junit", "server-log", "artifact-directory"]) {
     assert.ok(output in outputs, `missing action output ${output}`);
   }
 });

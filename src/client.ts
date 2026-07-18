@@ -138,6 +138,10 @@ export class ProtocolClient {
     await this.request("look", { yaw, pitch });
   }
 
+  public async selectHotbar(slot: number): Promise<void> {
+    await this.request("select_hotbar", { slot });
+  }
+
   public async move(control: "forward" | "back" | "left" | "right" | "jump" | "sprint" | "sneak", durationMs: number): Promise<void> {
     await this.request("move", { control, enabled: true });
     try {
@@ -165,6 +169,8 @@ export class ProtocolClient {
 
   public async respawn(): Promise<void> {
     await this.request("respawn");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    this.record("respawn", await this.state());
   }
 
   public async clickWindow(slot: number, button = 0, mode = 0): Promise<void> {
@@ -209,6 +215,8 @@ export class ProtocolClient {
         resolveSpawn();
       } else if (message.type === "error" && !this.isConnected) {
         rejectSpawn(new HarnessError("CLIENT_CONNECTION_FAILED", `${this.spec.name}: ${JSON.stringify(message.data)}`));
+      } else if (message.type === "end" && !this.isConnected) {
+        rejectSpawn(new HarnessError("CLIENT_CONNECTION_REJECTED", `${this.spec.name}: ${JSON.stringify(message.data)}`));
       }
       return;
     }
