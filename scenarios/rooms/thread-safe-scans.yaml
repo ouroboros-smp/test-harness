@@ -1,0 +1,47 @@
+schemaVersion: 1
+id: rooms/thread-safe-scans
+title: Rooms server-thread-owned scans and cross-chunk safe degradation
+issues: [8]
+tags: [rooms, concurrency, chunks, regression]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: scanner, username: RoomsScanner }
+server: { memoryMb: 1536 }
+steps:
+  - id: start
+    name: Boot with thread checks and build single-chunk, edge, and cross-chunk fixtures
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: scanner, command: "rooms harness fixtures scan-boundaries" }
+  - id: classify
+    name: Classify owned fixtures and safely decline unavailable cross-chunk snapshots
+    actions:
+      - { type: client.command, client: scanner, command: "rooms rescan" }
+      - { type: wait.duration, seconds: 5 }
+    assertions:
+      - { type: log.present, pattern: "snapshot-unavailable|snapshot unavailable", count: 1, operator: gte }
+      - { type: log.absent, pattern: "wrong thread|thread-check exception|synchronous unsafe chunk load" }
+  - id: preserve
+    name: Preserve UUID and last healthy classification across unavailable/unloaded chunks
+    actions:
+      - { type: snapshot.capture, name: before-unload, path: /v1/entities }
+      - { type: client.command, client: scanner, command: "rooms harness unload-required-chunk" }
+      - { type: client.command, client: scanner, command: "rooms rescan" }
+      - { type: snapshot.capture, name: after-unload, path: /v1/entities }
+    assertions:
+      - { type: snapshot.equals, left: before-unload, right: after-unload }
+  - id: backlog
+    name: Repeat safe degradation under induced server-task backlog
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tick rate 5" } }
+      - { type: client.command, client: scanner, command: "rooms rescan" }
+      - { type: wait.duration, seconds: 2 }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tick rate 20" } }
+    assertions:
+      - { type: log.absent, pattern: "wrong thread|marker loss|ConcurrentModificationException" }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

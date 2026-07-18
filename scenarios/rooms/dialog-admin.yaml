@@ -1,0 +1,48 @@
+schemaVersion: 1
+id: rooms/dialog-admin
+title: Rooms native dialog navigation and structure administration
+issues: [10]
+tags: [rooms, dialog, permissions, administration]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: owner, username: RoomsOwner }
+  - { name: resident, username: RoomsResident }
+  - { name: stranger, username: RoomsStranger }
+server: { memoryMb: 1536 }
+steps:
+  - id: start
+    name: Discover and claim a multi-room structure with a main door
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: owner, command: "rooms harness fixture claimed-structure" }
+  - id: interaction
+    name: Preserve vanilla plain use and open the native admin dialog only on sneak-use
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness door plain" }
+      - { type: client.command, client: owner, command: "rooms harness door sneak" }
+    assertions:
+      - { type: client.event, client: owner, event: window_open, count: 1, operator: gte }
+  - id: mutate
+    name: Rename, manage residents, transfer ownership, ignore/resume, and browse catalog
+    actions:
+      - { type: client.command, client: owner, command: "rooms rename TestHouse" }
+      - { type: client.command, client: owner, command: "rooms resident add RoomsResident" }
+      - { type: client.command, client: owner, command: "rooms transfer RoomsResident" }
+      - { type: client.command, client: resident, command: "rooms ignore" }
+      - { type: client.command, client: resident, command: "rooms resume" }
+      - { type: client.command, client: resident, command: "rooms browse" }
+    assertions:
+      - { type: client.event, client: resident, event: message, pattern: "TestHouse|RoomsResident", count: 1, operator: gte }
+  - id: deny
+    name: Deny stranger owner actions without mutation
+    actions:
+      - { type: client.command, client: stranger, command: "rooms rename Pwned" }
+    assertions:
+      - { type: client.event, client: stranger, event: message, pattern: "denied|owner|permission", count: 1, operator: gte }
+      - { type: log.absent, pattern: "duplicate callback|door regression|API exception" }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

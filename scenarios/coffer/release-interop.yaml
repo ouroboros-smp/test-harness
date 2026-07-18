@@ -1,0 +1,42 @@
+schemaVersion: 1
+id: coffer/release-interop
+title: Coffer server-only packaging and production-mod interoperability
+issues: [22]
+tags: [coffer, release, packaging, interoperability, api]
+artifacts:
+  consumer: { required: true, description: Packaged coffer-fabric-server jar }
+  production_mods: { required: false, description: Optional production interoperability bundle, destination: mods }
+clients:
+  - { name: vanilla, username: CofferVanilla }
+server: { memoryMb: 1792 }
+steps:
+  - id: package
+    name: Boot only packaged release jars and verify server-only descriptor/bundled dependencies
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+    assertions:
+      - { type: log.present, pattern: "Coffer.*(?:initialized|loaded)", count: 1, operator: gte }
+      - { type: log.absent, pattern: "client entrypoint|client class.*server|mixin conflict|initialization-order" }
+  - id: protection_api
+    name: Query bound/unbound blocks through Common Protection API while preserving place/break/explosion policy
+    actions:
+      - { type: client.command, client: vanilla, command: "coffer harness protection-api all" }
+    assertions:
+      - { type: log.absent, pattern: "Common Protection API.*mismatch|place denied|break denied|explosion denied" }
+  - id: public_api
+    name: Exercise every public CofferApi read/mutation on the server thread including double chests
+    actions:
+      - { type: client.command, client: vanilla, command: "coffer harness public-api all" }
+    assertions:
+      - { type: log.absent, pattern: "CofferApi.*(?:exception|wrong thread|mismatch)" }
+  - id: client_compat
+    name: Preserve vanilla management paths and optional Coffer-client connectivity
+    actions:
+      - { type: client.command, client: vanilla, command: "coffer help" }
+    assertions:
+      - { type: client.event, client: vanilla, event: message, pattern: "coffer|lock|trust", count: 1, operator: gte }
+  - id: stop
+    name: Stop with packaged checksum, mod list, loader log, bridge results, and server log evidence
+    always: true
+    actions: [{ type: server.stop }]

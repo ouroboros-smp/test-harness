@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "ouro_harness_bridge",
+  "version": "${version}",
+  "name": "Ouroboros Harness Bridge",
+  "description": "Loopback-only authenticated control and observation bridge for release-level tests.",
+  "authors": ["Ouroboros SMP"],
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": ["com.ouroboros.harness.bridge.HarnessBridgeMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*",
+    "fabric-permissions-api-v0": "*"
+  }
+}

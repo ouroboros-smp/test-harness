@@ -1,0 +1,56 @@
+schemaVersion: 1
+id: rooms/sleep-semantics
+title: Rooms occupancy and streak-once sleep semantics
+issues: [11]
+tags: [rooms, sleep, occupancy, persistence]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: owner, username: SleepOwner }
+  - { name: resident, username: SleepResident }
+  - { name: stranger, username: SleepStranger }
+server: { memoryMb: 1536 }
+steps:
+  - id: start
+    name: Build claimed bedrooms and a bunkroom with real beds
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: owner, command: "rooms harness fixtures sleep" }
+  - id: capacity
+    name: Cap owner/resident slots at bed count and keep stranger as guest
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness sleep owner" }
+      - { type: client.command, client: resident, command: "rooms harness sleep resident" }
+      - { type: client.command, client: stranger, command: "rooms harness sleep stranger" }
+    assertions:
+      - { type: log.present, pattern: "occupancy.*2", count: 1, operator: gte }
+      - { type: log.absent, pattern: "occupancy.*3|duplicate grant" }
+  - id: allocation
+    name: Allocate unclaimed bedrooms by first arrival and treat bunkrooms as guests
+    actions:
+      - { type: client.command, client: stranger, command: "rooms harness sleep unclaimed" }
+      - { type: client.command, client: owner, command: "rooms harness sleep bunkroom" }
+    assertions:
+      - { type: log.absent, pattern: "bunkroom.*(?:slot|streak)" }
+  - id: commit
+    name: Increment deep-sleep streak exactly once and reject leave/quit before commitment
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness deep-sleep" }
+      - { type: client.disconnect, client: resident }
+      - { type: wait.ticks, ticks: 40 }
+      - { type: client.reconnect, client: resident }
+    assertions:
+      - { type: log.rate, pattern: "streak increment.*SleepOwner", maxPerMinute: 1, windowSeconds: 60 }
+      - { type: log.absent, pattern: "grant.*SleepResident" }
+  - id: ignored
+    name: Ignored bedrooms preserve vanilla sleep without Rooms writes or effects
+    actions:
+      - { type: client.command, client: owner, command: "rooms ignore" }
+      - { type: client.command, client: owner, command: "rooms harness sleep owner" }
+    assertions:
+      - { type: log.absent, pattern: "Rooms.*(?:write|effect).*SleepOwner" }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

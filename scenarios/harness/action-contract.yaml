@@ -1,0 +1,15 @@
+schemaVersion: 1
+id: harness/action-contract
+title: Pinnable action inputs and stable artifact/output contract
+issues: [5]
+tags: [ci, packaging, action]
+steps:
+  - id: action
+    name: Composite action and report contracts exist in the packaged repository
+    assertions:
+      - type: file.exists
+        scope: repository
+        path: action.yml
+      - type: file.exists
+        scope: repository
+        path: schemas/report.schema.json

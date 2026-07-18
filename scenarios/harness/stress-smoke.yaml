@@ -1,0 +1,45 @@
+schemaVersion: 1
+id: harness/stress-smoke
+title: Bounded multi-client stress and performance-report capability
+issues: [3]
+tags: [soak, performance, multi-client]
+clients:
+  - { name: alice, username: SoakAlice }
+  - { name: bob, username: SoakBob }
+  - { name: carol, username: SoakCarol }
+  - { name: dave, username: SoakDave }
+server:
+  memoryMb: 1280
+  allowedLogPatterns: ["Can't keep up"]
+steps:
+  - id: start
+    name: Boot and join N real clients
+    timeoutSeconds: 260
+    actions:
+      - type: server.start
+  - id: soak
+    name: Run a fixed-window configurable behavior workload
+    timeoutSeconds: 60
+    actions:
+      - type: soak.run
+        durationSeconds: 15
+        intervalMs: 500
+        behavior:
+          - { type: client.move, client: alice, control: forward, durationMs: 100 }
+          - { type: client.move, client: bob, control: left, durationMs: 100 }
+          - { type: client.move, client: carol, control: right, durationMs: 100 }
+          - { type: client.move, client: dave, control: jump, durationMs: 100 }
+    assertions:
+      - type: metric.threshold
+        path: mspt.p99
+        operator: lte
+        expected: 100
+      - type: log.rate
+        pattern: "\\bERROR\\b"
+        maxPerMinute: 0
+        windowSeconds: 15
+  - id: stop
+    name: Clean shutdown after the soak
+    always: true
+    actions:
+      - type: server.stop

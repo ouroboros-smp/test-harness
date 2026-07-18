@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ouroboros-smp/test-harness/schemas/scenario.schema.json",
+  "title": "Ouroboros Fabric harness scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "title", "issues", "steps"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9/_-]*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "issues": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+    "tags": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "pins": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minecraft": { "type": "string" },
+        "loader": { "type": "string" },
+        "fabricApi": { "type": "string" },
+        "installer": { "type": "string" },
+        "java": { "type": "integer" },
+        "protocol": { "type": "integer" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "required": { "type": "boolean" },
+          "description": { "type": "string" },
+          "path": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+          "destination": { "enum": ["mods", "root", "none"] }
+        }
+      }
+    },
+    "clients": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "username"],
+        "properties": {
+          "name": { "type": "string" },
+          "username": { "type": "string", "pattern": "^[A-Za-z0-9_]{3,16}$" },
+          "gameMode": { "enum": ["survival", "creative", "adventure", "spectator"] },
+          "connectOnStart": { "type": "boolean" }
+        }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memoryMb": { "type": "integer", "minimum": 512 },
+        "startupTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "shutdownTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "commandTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "reuseWorldOnRestart": { "type": "boolean" },
+        "properties": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }] } },
+        "jvmArgs": { "type": "array", "items": { "type": "string" } },
+        "allowedLogPatterns": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "variables": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "anyOf": [
+          { "required": ["actions"], "properties": { "actions": { "type": "array" } } },
+          { "required": ["assertions"], "properties": { "assertions": { "type": "array" } } }
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "name": { "type": "string", "minLength": 1 },
+          "timeoutSeconds": { "type": "integer", "minimum": 1 },
+          "always": { "type": "boolean" },
+          "actions": { "type": "array", "items": { "$ref": "#/$defs/operation" } },
+          "assertions": { "type": "array", "items": { "$ref": "#/$defs/operation" } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "operation": {
+      "type": "object",
+      "required": ["type"],
+      "properties": { "type": { "type": "string", "minLength": 1 } },
+      "additionalProperties": true
+    }
+  }
+}

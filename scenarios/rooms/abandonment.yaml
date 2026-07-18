@@ -1,0 +1,57 @@
+schemaVersion: 1
+id: rooms/abandonment
+title: Rooms presence, abandonment, and tombstone retirement lifecycle
+issues: [14]
+tags: [rooms, abandonment, tombstone, permissions]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: op, username: TombstoneOp }
+  - { name: user, username: TombstoneUser }
+server:
+  memoryMb: 1536
+  reuseWorldOnRestart: true
+steps:
+  - id: create
+    name: Boot with test-scale deadlines and discover typed/undefined rooms
+    timeoutSeconds: 260
+    actions:
+      - { type: file.write, path: config/rooms-harness.json, content: { typedDeadlineSeconds: 10, undefinedDeadlineSeconds: 5 } }
+      - { type: server.start }
+      - { type: client.command, client: op, command: "rooms harness fixture abandonment" }
+      - { type: client.command, client: op, command: "op TombstoneOp" }
+  - id: deadlines
+    name: Advance typed recency, tombstone undefined first, then retire typed with stable UUID
+    timeoutSeconds: 30
+    actions:
+      - { type: client.command, client: op, command: "rooms harness visit typed" }
+      - { type: wait.duration, seconds: 6 }
+      - { type: wait.duration, seconds: 6 }
+    assertions:
+      - { type: log.present, pattern: "undefined.*tombstone", count: 1, operator: gte }
+      - { type: log.present, pattern: "typed.*tombstone", count: 1, operator: gte }
+      - { type: log.absent, pattern: "tombstone.*UUID.*changed" }
+  - id: inactive
+    name: Retire scan, sweep, effect, dialog, and display paths
+    actions:
+      - { type: wait.ticks, ticks: 40 }
+    assertions:
+      - { type: log.absent, pattern: "tombstone.*(?:scan|sweep|effect|dialog|display).*active" }
+  - id: command
+    name: Make tombstone-now op-only and equivalent to deadline retirement
+    actions:
+      - { type: client.command, client: op, command: "rooms tombstone-now" }
+      - { type: client.command, client: user, command: "rooms tombstone-now" }
+    assertions:
+      - { type: client.event, client: user, event: message, pattern: "denied|permission|operator", count: 1, operator: gte }
+  - id: restart
+    name: Keep tombstones non-live and queryable across restart
+    timeoutSeconds: 260
+    actions:
+      - { type: server.restart, reconnect: true }
+    assertions:
+      - { type: log.absent, pattern: "tombstone.*reactivat" }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

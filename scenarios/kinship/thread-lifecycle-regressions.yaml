@@ -1,0 +1,52 @@
+schemaVersion: 1
+id: kinship/thread-lifecycle-regressions
+title: Kinship server-thread, async barrier, logout, and generation-token regressions
+issues: [6]
+tags: [kinship, concurrency, lifecycle, regression]
+artifacts:
+  consumer: { required: true, description: Packaged Kinship Fabric 26.2 server jar }
+clients:
+  - { name: a, username: KinThreadA }
+  - { name: b, username: KinThreadB }
+  - { name: c, username: KinThreadC }
+server:
+  memoryMb: 1536
+steps:
+  - id: start
+    name: Boot real Fabric server and prepare players in distinct chunks/dimensions
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinThreadA 0 80 0" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinThreadB 512 80 512" } }
+  - id: barrier
+    name: Retire logout work during queued aura snapshots without wedging the barrier
+    actions:
+      - { type: client.disconnect, client: b }
+      - { type: wait.ticks, ticks: 40 }
+      - { type: client.reconnect, client: b }
+    assertions:
+      - { type: log.absent, pattern: "barrier.*(?:wedged|timeout)|ConcurrentModificationException" }
+  - id: overlapping
+    name: Preserve per-scan snapshot isolation under induced async backlog
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tick rate 5" } }
+      - { type: wait.duration, seconds: 3 }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tick rate 20" } }
+    assertions:
+      - { type: log.absent, pattern: "stale scan|snapshot.*(?:leak|corrupt)|wrong thread" }
+  - id: generation
+    name: Cancel damage, quit, supersession, cross-dimension, and warmup generations exactly once
+    actions:
+      - { type: client.command, client: a, command: "kinship recall KinThreadB" }
+      - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KinThreadA, amount: 1, type: generic } }
+      - { type: client.disconnect, client: a }
+      - { type: client.reconnect, client: a }
+      - { type: client.command, client: a, command: "kinship recall KinThreadB" }
+    assertions:
+      - { type: log.absent, pattern: "obsolete generation|duplicate refund|wrong thread" }
+  - id: stop
+    name: Clean shutdown after all cancellation paths
+    always: true
+    actions:
+      - { type: server.stop }
