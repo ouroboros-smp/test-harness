@@ -1,0 +1,43 @@
+schemaVersion: 1
+id: kinship/stress-soak
+title: Kinship aura churn and core command stress soak
+issues: [4]
+tags: [kinship, soak, aura]
+artifacts:
+  consumer: { required: true, description: Packaged Kinship Fabric 26.2 server jar }
+clients:
+  - { name: family_a, username: KinSoakA }
+  - { name: family_b, username: KinSoakB }
+  - { name: stranger_a, username: KinSoakC }
+  - { name: stranger_b, username: KinSoakD }
+server:
+  memoryMb: 1536
+steps:
+  - id: start
+    name: Boot and prepare family/non-family cohorts
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: family_a, command: "union propose KinSoakB" }
+      - { type: client.command, client: family_b, command: "union accept KinSoakA" }
+  - id: soak
+    name: Move through aura boundaries while spamming core commands
+    timeoutSeconds: 180
+    actions:
+      - type: soak.run
+        durationSeconds: 60
+        intervalMs: 500
+        behavior:
+          - { type: client.move, client: family_a, control: forward, durationMs: 100 }
+          - { type: client.move, client: family_b, control: back, durationMs: 100 }
+          - { type: client.command, client: family_a, command: "family tree" }
+          - { type: client.command, client: stranger_a, command: "family home info" }
+          - { type: client.command, client: stranger_b, command: "notary list" }
+    assertions:
+      - { type: log.rate, pattern: "\\bERROR\\b", maxPerMinute: 0, windowSeconds: 60 }
+      - { type: metric.threshold, path: mspt.p99, operator: lte, expected: 100 }
+  - id: stop
+    name: Stop without watchdog, hang, or error storm
+    always: true
+    actions:
+      - { type: server.stop }

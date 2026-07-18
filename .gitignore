@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.gradle/
+/build/
+bridge/build/
+client/target/
+.ouro-harness/
+artifacts/
+run/
+*.log
+hs_err_pid*.log

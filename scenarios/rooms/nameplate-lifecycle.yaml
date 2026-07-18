@@ -1,0 +1,50 @@
+schemaVersion: 1
+id: rooms/nameplate-lifecycle
+title: Rooms one-nameplate main-door lifecycle without entity leaks
+issues: [13]
+tags: [rooms, display, entity-lifecycle, restart]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: owner, username: DisplayOwner }
+server:
+  memoryMb: 1536
+  reuseWorldOnRestart: true
+steps:
+  - id: create
+    name: Discover a multi-room structure and place exactly one TextDisplay at the elected main door
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: owner, command: "rooms harness fixture two-door-display" }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:text_display", jsonPath: "0.type", expected: minecraft:text_display }
+  - id: doors
+    name: Re-elect the survivor, clear the final display, and recreate exactly one after restore
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness break-main-door" }
+      - { type: wait.ticks, ticks: 1 }
+      - { type: client.command, client: owner, command: "rooms harness break-final-door" }
+      - { type: wait.ticks, ticks: 1 }
+      - { type: client.command, client: owner, command: "rooms harness restore-door" }
+      - { type: wait.ticks, ticks: 1 }
+    assertions:
+      - { type: log.absent, pattern: "duplicate display|orphan display|marker loss" }
+  - id: healing_merge
+    name: Heal origins and merge across chunks while retiring obsolete displays
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness origin-heal-and-merge" }
+      - { type: wait.ticks, ticks: 2 }
+    assertions:
+      - { type: log.absent, pattern: "obsolete.*display.*remain|display leak" }
+  - id: restart
+    name: Restart and recount one persistent TextDisplay
+    timeoutSeconds: 260
+    actions:
+      - { type: server.restart, reconnect: true }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:text_display", jsonPath: "0.type", expected: minecraft:text_display }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

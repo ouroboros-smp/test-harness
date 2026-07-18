@@ -1,0 +1,47 @@
+schemaVersion: 1
+id: rooms/restart-late-world
+title: Rooms restart and late-world index rebuild persistence
+issues: [12]
+tags: [rooms, restart, persistence, multi-world]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: owner, username: PersistOwner }
+server:
+  memoryMb: 1536
+  reuseWorldOnRestart: true
+steps:
+  - id: prepare
+    name: Discover typed and undefined rooms, claim/rename, set residents, ignored state, occupancy, and streak data
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: owner, command: "rooms harness fixture persistence-full" }
+      - { type: snapshot.capture, name: durable-before, path: /v1/entities }
+  - id: restart
+    name: Restart the same world/database and preserve every durable identity and field
+    timeoutSeconds: 260
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: snapshot.capture, name: durable-after, path: /v1/entities }
+    assertions:
+      - { type: snapshot.equals, left: durable-before, right: durable-after }
+  - id: resume
+    name: Resume containment/effects/rescans on chunk load and preserve UUID through renovation
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness load-tracked-chunk" }
+      - { type: client.command, client: owner, command: "rooms harness renovate" }
+      - { type: wait.ticks, ticks: 40 }
+    assertions:
+      - { type: log.absent, pattern: "redeclare|identity loss|duplicate UUID" }
+  - id: late_world
+    name: Late-load a second world and repeat discovery/resume
+    actions:
+      - { type: client.command, client: owner, command: "rooms harness late-world" }
+      - { type: wait.ticks, ticks: 40 }
+    assertions:
+      - { type: log.absent, pattern: "silent loss|index rebuild failed|ERROR" }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

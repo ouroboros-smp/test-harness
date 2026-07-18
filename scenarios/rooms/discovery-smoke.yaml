@@ -1,0 +1,50 @@
+schemaVersion: 1
+id: rooms/discovery-smoke
+title: Rooms real-chunk discovery settle, cooldown, edit retry, and undefined offer
+issues: [7]
+tags: [rooms, discovery, chunks, dialog]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: explorer, username: RoomsExplorer }
+server: { memoryMb: 1536 }
+steps:
+  - id: start
+    name: Boot Rooms with a fresh database and join a real client
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+  - id: unsettled
+    name: Sprint through generated terrain without premature or repeated discovery
+    actions:
+      - { type: client.move, client: explorer, control: sprint, durationMs: 10000 }
+    assertions:
+      - { type: log.absent, pattern: "discovery.*(?:complete|outcome).*RoomsExplorer" }
+  - id: leaking
+    name: Settle in a leaking enclosure and respect the probe cooldown
+    actions:
+      - { type: client.command, client: explorer, command: "rooms harness fixture leaking" }
+      - { type: wait.duration, seconds: 5 }
+      - { type: snapshot.capture, name: leaking-probe, path: /v1/metrics }
+      - { type: wait.duration, seconds: 5 }
+    assertions:
+      - { type: log.present, pattern: "leak(?:ed|ing).*probe", count: 1 }
+  - id: retry
+    name: A player roof edit retries within settle/debounce bounds
+    actions:
+      - { type: client.command, client: explorer, command: "rooms harness seal" }
+      - { type: wait.duration, seconds: 5 }
+    assertions:
+      - { type: log.present, pattern: "discover(?:ed|y).*room", count: 1, operator: gte }
+  - id: undefined
+    name: Persist one undefined UUID and offer one prospective dialog
+    actions:
+      - { type: client.command, client: explorer, command: "rooms harness fixture undefined" }
+      - { type: wait.duration, seconds: 5 }
+    assertions:
+      - { type: client.event, client: explorer, event: window_open, count: 1, operator: gte }
+      - { type: log.absent, pattern: "duplicate marker|watchdog|hang" }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

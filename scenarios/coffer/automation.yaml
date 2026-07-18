@@ -1,0 +1,48 @@
+schemaVersion: 1
+id: coffer/automation
+title: Coffer automation extraction authorization and dense-hopper safety
+issues: [21]
+tags: [coffer, hopper, automation, soak]
+artifacts:
+  consumer: { required: true, description: Packaged coffer-fabric-server jar }
+clients:
+  - { name: owner, username: HopperOwner }
+  - { name: trusted, username: HopperTrusted }
+server: { memoryMb: 1536 }
+steps:
+  - id: fixtures
+    name: Build source/destination hopper, minecart, golem, and ownership fixtures
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: owner, command: "coffer harness automation fixtures" }
+  - id: authorization
+    name: Allow owner/local/global extraction and deny foreign/unowned/minecart extraction
+    actions:
+      - { type: client.command, client: owner, command: "coffer harness automation matrix" }
+      - { type: wait.ticks, ticks: 40 }
+    assertions:
+      - { type: log.absent, pattern: "unauthorized extraction succeeded|authorized extraction failed" }
+  - id: flags
+    name: Resolve config defaults, selectors, overrides, reset, reload, and deposit behavior
+    actions:
+      - { type: client.command, client: owner, command: "coffer harness automation flags" }
+    assertions:
+      - { type: log.absent, pattern: "flag resolution mismatch|deposit regression" }
+  - id: dense
+    name: Run bounded dense-hopper denial without duplication, deletion, or log flood
+    timeoutSeconds: 120
+    actions:
+      - type: soak.run
+        durationSeconds: 45
+        intervalMs: 1000
+        behavior:
+          - { type: client.command, client: owner, command: "coffer harness automation pulse" }
+    assertions:
+      - { type: log.rate, pattern: "denied extraction", maxPerMinute: 120, windowSeconds: 45 }
+      - { type: log.absent, pattern: "duplicate item|item loss|ERROR" }
+      - { type: metric.threshold, path: mspt.p99, operator: lte, expected: 100 }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions: [{ type: server.stop }]

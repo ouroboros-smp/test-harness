@@ -1,0 +1,126 @@
+name: Ouroboros Fabric Test Harness
+description: Run a pinned Fabric 26.2 release-level scenario and publish stable evidence artifacts.
+inputs:
+  scenario:
+    description: Scenario id under scenarios/.
+    required: true
+  consumer-jar:
+    description: Path to the packaged consumer Fabric server jar.
+    required: true
+  runtime-dependency-jars:
+    description: Optional newline-separated runtime dependency jar paths.
+    required: false
+    default: ""
+  minecraft-version:
+    description: Minecraft version pin.
+    required: false
+    default: "26.2"
+  loader-version:
+    description: Fabric Loader version pin.
+    required: false
+    default: "0.19.3"
+  fabric-api-version:
+    description: Fabric API version pin.
+    required: false
+    default: "0.154.2+26.2"
+  java-version:
+    description: Java runtime/toolchain version.
+    required: false
+    default: "25"
+  output-directory:
+    description: Artifact directory; defaults beneath runner.temp.
+    required: false
+    default: ""
+  artifact-name:
+    description: Uploaded artifact name.
+    required: false
+    default: "fabric-harness-results"
+outputs:
+  passed:
+    description: true only when every step and global failure rule passed.
+    value: ${{ steps.run.outputs.passed }}
+  report:
+    description: Machine-readable per-step JSON report.
+    value: ${{ steps.run.outputs.report }}
+  junit:
+    description: JUnit-compatible XML report.
+    value: ${{ steps.run.outputs.junit }}
+  server-log:
+    description: Combined server log artifact.
+    value: ${{ steps.run.outputs.server-log }}
+  artifact-directory:
+    description: Directory containing all preserved evidence.
+    value: ${{ steps.run.outputs.artifact-directory }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      with:
+        node-version: "24"
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/package-lock.json
+    - name: Set up Java
+      uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+        cache: gradle
+    - name: Install and build the pinned harness
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        command -v rustup >/dev/null || { echo "rustup is required by the exact-version headless client" >&2; exit 1; }
+        rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
+        npm ci
+        npm run build
+        npm run build:client
+        npm run test:bridge
+        npm run validate
+    - id: run
+      name: Run release-level scenario
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        INPUT_SCENARIO: ${{ inputs.scenario }}
+        INPUT_CONSUMER: ${{ inputs.consumer-jar }}
+        INPUT_DEPENDENCIES: ${{ inputs.runtime-dependency-jars }}
+        INPUT_OUTPUT: ${{ inputs.output-directory }}
+        INPUT_MINECRAFT: ${{ inputs.minecraft-version }}
+        INPUT_LOADER: ${{ inputs.loader-version }}
+        INPUT_FABRIC_API: ${{ inputs.fabric-api-version }}
+      run: |
+        set -uo pipefail
+        output="${INPUT_OUTPUT:-${RUNNER_TEMP}/ouroboros-fabric-harness}"
+        mkdir -p "$output"
+        consumer="$INPUT_CONSUMER"
+        if [[ "$consumer" != /* ]]; then consumer="${GITHUB_WORKSPACE}/${consumer}"; fi
+        args=(run "$INPUT_SCENARIO" --artifact "consumer=$consumer" --output "$output" \
+          --minecraft "$INPUT_MINECRAFT" --loader "$INPUT_LOADER" --fabric-api "$INPUT_FABRIC_API")
+        index=0
+        while IFS= read -r dependency; do
+          [[ -z "$dependency" ]] && continue
+          if [[ "$dependency" != /* ]]; then dependency="${GITHUB_WORKSPACE}/${dependency}"; fi
+          args+=(--artifact "dependency_${index}=$dependency")
+          index=$((index + 1))
+        done <<< "$INPUT_DEPENDENCIES"
+        node dist/cli.js "${args[@]}"
+        status=$?
+        if [[ $status -eq 0 ]]; then passed=true; else passed=false; fi
+        {
+          echo "passed=$passed"
+          echo "report=$output/report.json"
+          echo "junit=$output/junit.xml"
+          echo "server-log=$output/artifacts/harness-server.log"
+          echo "artifact-directory=$output"
+        } >> "$GITHUB_OUTPUT"
+        exit $status
+    - name: Upload harness evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.run.outputs.artifact-directory }}
+        if-no-files-found: warn
+        retention-days: 14

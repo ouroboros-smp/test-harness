@@ -1,0 +1,88 @@
+schemaVersion: 1
+id: kinship/functional-smoke
+title: Kinship union, family, home, notary, aura, and restart smoke
+issues: [2]
+tags: [kinship, functional, persistence, multi-client]
+artifacts:
+  consumer:
+    required: true
+    description: Packaged Kinship Fabric 26.2 server jar
+clients:
+  - { name: alex, username: KinAlex }
+  - { name: blair, username: KinBlair }
+  - { name: casey, username: KinCasey }
+  - { name: devon, username: KinDevon }
+server:
+  memoryMb: 1536
+  reuseWorldOnRestart: true
+steps:
+  - id: start
+    name: Boot packaged Kinship with fresh local storage and zero-error enable
+    timeoutSeconds: 260
+    actions:
+      - type: server.start
+    assertions:
+      - { type: log.present, pattern: "Kinship.*(?:initialized|enabled|started)", count: 1, operator: gte }
+  - id: union
+    name: Propose and accept a union; reject a duplicate proposal cleanly
+    actions:
+      - { type: client.command, client: alex, command: "union propose KinBlair" }
+      - { type: client.command, client: blair, command: "union accept KinAlex" }
+      - { type: client.command, client: alex, command: "union propose KinBlair" }
+      - { type: wait.duration, milliseconds: 500 }
+    assertions:
+      - { type: client.event, client: alex, event: message, pattern: "already|cannot|family", count: 1, operator: gte }
+  - id: surname_tree
+    name: Assign one surname and render both spouses in the family tree
+    actions:
+      - { type: client.command, client: alex, command: "family surname Ouroboros" }
+      - { type: client.command, client: alex, command: "family tree" }
+    assertions:
+      - { type: client.event, client: alex, event: message, pattern: "KinAlex.*KinBlair|KinBlair.*KinAlex", count: 1, operator: gte }
+  - id: adoption
+    name: Adopt via explicit acceptance and reject a non-married adoption
+    actions:
+      - { type: client.command, client: alex, command: "family adopt propose KinDevon" }
+      - { type: client.command, client: devon, command: "family adopt accept KinAlex" }
+      - { type: client.command, client: casey, command: "family adopt propose KinDevon" }
+    assertions:
+      - { type: client.event, client: casey, event: message, pattern: "married|union|required|cannot", count: 1, operator: gte }
+  - id: home_notary
+    name: Register the hearth anchor and open the Civil Registry through a notary
+    actions:
+      - { type: client.command, client: alex, command: "family home set" }
+      - { type: client.command, client: alex, command: "family home info" }
+      - { type: client.command, client: alex, command: "notary spawn" }
+      - { type: client.command, client: alex, command: "notary list" }
+    assertions:
+      - { type: client.event, client: alex, event: message, pattern: "home|hearth", count: 1, operator: gte }
+      - { type: client.event, client: alex, event: message, pattern: "notary", count: 1, operator: gte }
+  - id: aura
+    name: Apply family-only aura without thrash and clear it after leaving range
+    timeoutSeconds: 90
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinAlex 0 80 0" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinBlair 1 80 0" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinCasey 2 80 0" } }
+      - { type: wait.duration, seconds: 5 }
+      - { type: snapshot.capture, name: aura-near, client: blair }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinBlair 200 80 200" } }
+      - { type: wait.duration, seconds: 5 }
+      - { type: snapshot.capture, name: aura-far, client: blair }
+    assertions:
+      - { type: log.rate, pattern: "aura.*(?:apply|top.?up)", maxPerMinute: 2, windowSeconds: 60 }
+  - id: persistence
+    name: Preserve family, surname, adoption, hearth, and notary across a clean restart
+    timeoutSeconds: 260
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: client.command, client: alex, command: "family tree" }
+      - { type: client.command, client: alex, command: "family home info" }
+      - { type: client.command, client: alex, command: "notary list" }
+    assertions:
+      - { type: client.event, client: alex, event: message, pattern: "Ouroboros|KinBlair|KinDevon", count: 1, operator: gte }
+  - id: stop
+    name: Clean shutdown
+    always: true
+    actions:
+      - { type: server.stop }

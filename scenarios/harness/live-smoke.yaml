@@ -1,0 +1,68 @@
+schemaVersion: 1
+id: harness/live-smoke
+title: Fabric 26.2 lifecycle, real-client, bridge, assertion, and report smoke
+description: Proves the reusable v1 capability without a consumer mod.
+issues: [1]
+tags: [smoke, fabric, lifecycle, protocol-client]
+clients:
+  - name: alice
+    username: HarnessAlice
+server:
+  memoryMb: 1024
+  startupTimeoutSeconds: 240
+  shutdownTimeoutSeconds: 30
+steps:
+  - id: start
+    name: Boot Fabric and join one real non-spectator client
+    timeoutSeconds: 260
+    actions:
+      - type: server.start
+    assertions:
+      - type: bridge.json
+        path: /v1/health
+        jsonPath: status
+        expected: ready
+      - type: bridge.json
+        path: /v1/players
+        jsonPath: "0.name"
+        expected: HarnessAlice
+      - type: client.state
+        client: alice
+        path: gameMode
+        expected: survival
+  - id: control
+    name: Mutate and read state through the authenticated server-thread bridge
+    actions:
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body:
+          command: "time set day"
+        as: command.time
+      - type: bridge.request
+        method: PUT
+        path: /v1/player/inventory
+        body:
+          player: HarnessAlice
+          slot: 0
+          item: minecraft:diamond
+          count: 3
+      - type: wait.ticks
+        ticks: 2
+    assertions:
+      - type: bridge.json
+        path: "/v1/player/state?name=HarnessAlice"
+        jsonPath: inventory.0.item
+        expected: minecraft:diamond
+      - type: client.state
+        client: alice
+        path: inventory.36.count
+        expected: 3
+  - id: shutdown
+    name: Stop cleanly and reject global failure signatures
+    always: true
+    actions:
+      - type: server.stop
+    assertions:
+      - type: log.absent
+        pattern: "watchdog|wrong thread|uncaught|crash report"

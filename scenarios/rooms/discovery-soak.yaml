@@ -1,0 +1,40 @@
+schemaVersion: 1
+id: rooms/discovery-soak
+title: Rooms bounded discovery probes and undefined-room amplification soak
+issues: [15]
+tags: [rooms, soak, discovery, performance]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric 26.2 server jar }
+clients:
+  - { name: traveler, username: RoomSoakTraveler }
+  - { name: outdoor, username: RoomSoakOutdoor }
+  - { name: builder, username: RoomSoakBuilder }
+  - { name: occupant, username: RoomSoakOccupant }
+server:
+  memoryMb: 1792
+steps:
+  - id: start
+    name: Boot generated terrain with traveler, outdoor, builder, and occupant cohorts
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+  - id: soak
+    name: Seal/break fixtures, create undefined rooms, and induce scheduler backlog in a fixed window
+    timeoutSeconds: 240
+    actions:
+      - type: soak.run
+        durationSeconds: 90
+        intervalMs: 1000
+        behavior:
+          - { type: client.move, client: traveler, control: sprint, durationMs: 200 }
+          - { type: client.command, client: builder, command: "rooms harness toggle-fixture" }
+          - { type: client.command, client: outdoor, command: "rooms harness settle-outdoor" }
+          - { type: client.command, client: occupant, command: "rooms harness occupy-typed" }
+    assertions:
+      - { type: log.rate, pattern: "leak(?:ed|ing).*probe", maxPerMinute: 12, windowSeconds: 90 }
+      - { type: log.absent, pattern: "moving.*probe|undefined.*(?:label|sweep).*growth|watchdog|stack trace" }
+      - { type: metric.threshold, path: mspt.p99, operator: lte, expected: 100 }
+  - id: stop
+    name: Export performance evidence and stop cleanly
+    always: true
+    actions: [{ type: server.stop }]

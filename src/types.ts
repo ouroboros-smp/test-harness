@@ -1,0 +1,136 @@
+export const SUPPORTED_SCHEMA_VERSION = 1 as const;
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
+export interface FabricPins {
+  minecraft: string;
+  loader: string;
+  fabricApi: string;
+  installer: string;
+  java: number;
+  protocol: number;
+}
+
+export interface ArtifactSpec {
+  required?: boolean;
+  description?: string;
+  path?: string;
+  url?: string;
+  sha256?: string;
+  destination?: "mods" | "root" | "none";
+}
+
+export interface ClientSpec {
+  name: string;
+  username: string;
+  gameMode?: "survival" | "creative" | "adventure" | "spectator";
+  connectOnStart?: boolean;
+}
+
+export interface ServerSpec {
+  memoryMb?: number;
+  startupTimeoutSeconds?: number;
+  shutdownTimeoutSeconds?: number;
+  commandTimeoutSeconds?: number;
+  reuseWorldOnRestart?: boolean;
+  properties?: Record<string, string | number | boolean>;
+  jvmArgs?: string[];
+  allowedLogPatterns?: string[];
+}
+
+export interface HarnessAction {
+  type: string;
+  [key: string]: JsonValue | undefined;
+}
+
+export interface HarnessAssertion {
+  type: string;
+  [key: string]: JsonValue | undefined;
+}
+
+export interface ScenarioStep {
+  id: string;
+  name: string;
+  timeoutSeconds?: number;
+  actions?: HarnessAction[];
+  assertions?: HarnessAssertion[];
+  always?: boolean;
+}
+
+export interface Scenario {
+  schemaVersion: typeof SUPPORTED_SCHEMA_VERSION;
+  id: string;
+  title: string;
+  description?: string;
+  issues: number[];
+  tags?: string[];
+  pins?: Partial<FabricPins>;
+  artifacts?: Record<string, ArtifactSpec>;
+  clients?: ClientSpec[];
+  server?: ServerSpec;
+  variables?: Record<string, JsonPrimitive>;
+  steps: ScenarioStep[];
+}
+
+export interface StepResult {
+  id: string;
+  name: string;
+  status: "passed" | "failed" | "skipped";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  error?: string;
+  evidence: Record<string, JsonValue>;
+}
+
+export interface LogFinding {
+  rule: string;
+  severity: "warning" | "error";
+  line: string;
+  lineNumber: number;
+}
+
+export interface PerformanceSummary {
+  samples: number;
+  tps?: number;
+  mspt?: {
+    p50: number;
+    p95: number;
+    p99: number;
+    max: number;
+  };
+  errorLines: number;
+  errorsPerMinute: number;
+}
+
+export interface ScenarioReport {
+  schemaVersion: 1;
+  runId: string;
+  scenario: { id: string; title: string; issues: number[] };
+  pins: FabricPins;
+  status: "passed" | "failed";
+  exitCode: 0 | 1;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  steps: StepResult[];
+  findings: LogFinding[];
+  performance?: PerformanceSummary;
+  artifacts: Record<string, string>;
+  failureSummary?: string;
+}
+
+export interface RunOptions {
+  artifacts: Record<string, string>;
+  output?: string;
+  cache?: string;
+  dryRun: boolean;
+  keepRunDirectory: boolean;
+  verbose: boolean;
+}
+
+export interface CommandResult {
+  command: string;
+  output: string[];
+}

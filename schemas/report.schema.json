@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ouroboros-smp/test-harness/schemas/report.schema.json",
+  "title": "Ouroboros Fabric harness report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "scenario", "pins", "status", "exitCode", "startedAt", "finishedAt", "durationMs", "steps", "findings", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "issues"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "issues": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "pins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minecraft", "loader", "fabricApi", "installer", "java", "protocol"],
+      "properties": {
+        "minecraft": { "type": "string" },
+        "loader": { "type": "string" },
+        "fabricApi": { "type": "string" },
+        "installer": { "type": "string" },
+        "java": { "type": "integer", "minimum": 1 },
+        "protocol": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "status": { "enum": ["passed", "failed"] },
+    "exitCode": { "enum": [0, 1] },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "durationMs": { "type": "number", "minimum": 0 },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "status", "startedAt", "finishedAt", "durationMs", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "skipped"] },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "finishedAt": { "type": "string", "format": "date-time" },
+          "durationMs": { "type": "number", "minimum": 0 },
+          "error": { "type": "string" },
+          "evidence": { "type": "object" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "severity", "line", "lineNumber"],
+        "properties": {
+          "rule": { "type": "string" },
+          "severity": { "enum": ["warning", "error"] },
+          "line": { "type": "string" },
+          "lineNumber": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["samples", "errorLines", "errorsPerMinute"],
+      "properties": {
+        "samples": { "type": "integer", "minimum": 0 },
+        "tps": { "type": "number", "minimum": 0 },
+        "mspt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p50", "p95", "p99", "max"],
+          "properties": {
+            "p50": { "type": "number", "minimum": 0 },
+            "p95": { "type": "number", "minimum": 0 },
+            "p99": { "type": "number", "minimum": 0 },
+            "max": { "type": "number", "minimum": 0 }
+          }
+        },
+        "errorLines": { "type": "integer", "minimum": 0 },
+        "errorsPerMinute": { "type": "number", "minimum": 0 }
+      }
+    },
+    "artifacts": { "type": "object", "additionalProperties": { "type": "string" } },
+    "failureSummary": { "type": "string" }
+  }
+}
