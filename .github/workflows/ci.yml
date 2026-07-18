@@ -35,6 +35,7 @@ jobs:
       - run: npm run fmt:client
       - run: npm run lint:client
       - run: npm run test:client
+      - run: npm run build:client
       - run: npm run test:bridge
       - run: npm run validate
       - run: node dist/cli.js doctor
