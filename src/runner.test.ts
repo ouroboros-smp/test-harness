@@ -22,7 +22,11 @@ test("dry-run executes the application contract without downloads or Java", asyn
     const stored = JSON.parse(await readFile(join(directory, "report.json"), "utf8")) as { scenario: { id: string }; artifacts: Record<string, string> };
     assert.equal(stored.scenario.id, "harness/live-smoke");
     assert.equal(stored.artifacts.report, join(directory, "report.json"));
+    assert.equal(stored.artifacts.html, join(directory, "report.html"));
     assert.ok(await readFile(join(directory, "junit.xml"), "utf8"));
+    const html = await readFile(join(directory, "report.html"), "utf8");
+    assert.match(html, /Ouroboros Fabric test harness/);
+    assert.match(html, /data-filter="failed"/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

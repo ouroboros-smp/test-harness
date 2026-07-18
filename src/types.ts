@@ -37,6 +37,7 @@ export interface ServerSpec {
   properties?: Record<string, string | number | boolean>;
   jvmArgs?: string[];
   allowedLogPatterns?: string[];
+  controlBridge?: boolean;
 }
 
 export interface HarnessAction {
@@ -70,6 +71,7 @@ export interface Scenario {
   clients?: ClientSpec[];
   server?: ServerSpec;
   variables?: Record<string, JsonPrimitive>;
+  ports?: string[];
   steps: ScenarioStep[];
 }
 
@@ -133,4 +135,77 @@ export interface RunOptions {
 export interface CommandResult {
   command: string;
   output: string[];
+}
+
+export interface PortfolioCommandSpec {
+  name: string;
+  command: string[];
+  java?: number;
+  environment?: Record<string, string | number | boolean>;
+  timeoutMinutes?: number;
+}
+
+export interface PortfolioArtifactSpec {
+  path: string;
+  base?: "repository" | "harness";
+}
+
+export interface PortfolioTargetSpec {
+  id: string;
+  title: string;
+  repository: string;
+  build: PortfolioCommandSpec[];
+  artifacts?: Record<string, PortfolioArtifactSpec>;
+  variables?: Record<string, JsonPrimitive>;
+  scenarios: string[];
+}
+
+export interface PortfolioManifest {
+  schemaVersion: 1;
+  title: string;
+  variables?: Record<string, JsonPrimitive>;
+  targets: PortfolioTargetSpec[];
+}
+
+export interface PortfolioBuildResult {
+  name: string;
+  command: string[];
+  status: "passed" | "failed";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  log: string;
+  error?: string;
+}
+
+export interface PortfolioScenarioResult {
+  id: string;
+  title: string;
+  status: "passed" | "failed" | "skipped";
+  durationMs: number;
+  issues: number[];
+  report?: string;
+  html?: string;
+  error?: string;
+}
+
+export interface PortfolioTargetResult {
+  id: string;
+  title: string;
+  repository: string;
+  status: "passed" | "failed";
+  durationMs: number;
+  builds: PortfolioBuildResult[];
+  scenarios: PortfolioScenarioResult[];
+}
+
+export interface PortfolioReport {
+  schemaVersion: 1;
+  title: string;
+  status: "passed" | "failed";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  targets: PortfolioTargetResult[];
+  artifacts: Record<string, string>;
 }

@@ -21,39 +21,53 @@ steps:
     timeoutSeconds: 260
     actions:
       - type: server.start
+      - { type: console.command, command: "op KinAlex" }
     assertions:
       - { type: log.present, pattern: "Kinship.*(?:initialized|enabled|started)", count: 1, operator: gte }
   - id: union
     name: Propose and accept a union; reject a duplicate proposal cleanly
     actions:
-      - { type: client.command, client: alex, command: "union propose KinBlair" }
-      - { type: client.command, client: blair, command: "union accept KinAlex" }
-      - { type: client.command, client: alex, command: "union propose KinBlair" }
-      - { type: wait.duration, milliseconds: 500 }
+      - { type: client.command, client: alex, command: "kinship union propose KinBlair" }
+      - { type: wait.duration, milliseconds: 750 }
+      - { type: client.command, client: blair, command: "kinship union accept KinAlex" }
+      - { type: wait.duration, milliseconds: 750 }
+      - { type: client.command, client: alex, command: "kinship union propose KinBlair" }
+      - { type: wait.duration, milliseconds: 750 }
     assertions:
       - { type: client.event, client: alex, event: message, pattern: "already|cannot|family", count: 1, operator: gte }
   - id: surname_tree
     name: Assign one surname and render both spouses in the family tree
     actions:
-      - { type: client.command, client: alex, command: "family surname Ouroboros" }
-      - { type: client.command, client: alex, command: "family tree" }
+      - { type: client.command, client: alex, command: "kinship union surname Ouroboros" }
+      - { type: wait.duration, milliseconds: 1000 }
+      - { type: client.command, client: alex, command: "kinship family tree" }
+      - { type: wait.duration, milliseconds: 750 }
     assertions:
       - { type: client.event, client: alex, event: message, pattern: "KinAlex.*KinBlair|KinBlair.*KinAlex", count: 1, operator: gte }
   - id: adoption
     name: Adopt via explicit acceptance and reject a non-married adoption
     actions:
-      - { type: client.command, client: alex, command: "family adopt propose KinDevon" }
-      - { type: client.command, client: devon, command: "family adopt accept KinAlex" }
-      - { type: client.command, client: casey, command: "family adopt propose KinDevon" }
+      - { type: client.command, client: alex, command: "kinship lineage adopt KinDevon" }
+      - { type: wait.duration, milliseconds: 750 }
+      - { type: client.command, client: devon, command: "kinship lineage accept KinAlex" }
+      - { type: wait.duration, milliseconds: 1000 }
+      - { type: client.command, client: casey, command: "kinship lineage adopt KinDevon" }
+      - { type: wait.duration, milliseconds: 750 }
     assertions:
-      - { type: client.event, client: casey, event: message, pattern: "married|union|required|cannot", count: 1, operator: gte }
+      - { type: client.event, client: casey, event: message, pattern: "family|lineage|cannot|eligible", count: 1, operator: gte }
   - id: home_notary
     name: Register the hearth anchor and open the Civil Registry through a notary
     actions:
-      - { type: client.command, client: alex, command: "family home set" }
-      - { type: client.command, client: alex, command: "family home info" }
-      - { type: client.command, client: alex, command: "notary spawn" }
-      - { type: client.command, client: alex, command: "notary list" }
+      - { type: client.look, client: alex, yaw: 0, pitch: 0 }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute as KinAlex at @s anchored eyes positioned ^ ^ ^3 run setblock ~ ~-1 ~ minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute as KinAlex at @s anchored eyes positioned ^ ^ ^3 run setblock ~ ~ ~ minecraft:bell[attachment=floor,facing=south]" } }
+      - { type: client.command, client: alex, command: "kinship home anchor" }
+      - { type: wait.duration, milliseconds: 1000 }
+      - { type: client.command, client: alex, command: "kinship home info" }
+      - { type: client.command, client: alex, command: "kinship notary spawn" }
+      - { type: wait.duration, milliseconds: 750 }
+      - { type: client.command, client: alex, command: "kinship notary list" }
+      - { type: wait.duration, milliseconds: 750 }
     assertions:
       - { type: client.event, client: alex, event: message, pattern: "home|hearth", count: 1, operator: gte }
       - { type: client.event, client: alex, event: message, pattern: "notary", count: 1, operator: gte }
@@ -61,24 +75,28 @@ steps:
     name: Apply family-only aura without thrash and clear it after leaving range
     timeoutSeconds: 90
     actions:
-      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinAlex 0 80 0" } }
-      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinBlair 1 80 0" } }
-      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinCasey 2 80 0" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at KinAlex run tp KinBlair ~1 ~ ~" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at KinAlex run tp KinCasey ~2 ~ ~" } }
       - { type: wait.duration, seconds: 5 }
-      - { type: snapshot.capture, name: aura-near, client: blair }
-      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "tp KinBlair 200 80 200" } }
+      - { type: bridge.request, method: GET, path: "/v1/player/state?name=KinBlair", as: aura-near-family }
+      - { type: bridge.request, method: GET, path: "/v1/player/state?name=KinCasey", as: aura-near-stranger }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at KinAlex run tp KinBlair ~200 ~ ~200" } }
       - { type: wait.duration, seconds: 5 }
-      - { type: snapshot.capture, name: aura-far, client: blair }
+      - { type: bridge.request, method: GET, path: "/v1/player/state?name=KinBlair", as: aura-far-family }
     assertions:
+      - { type: value.json, value: aura-near-family, operator: contains, expected: "minecraft:speed" }
+      - { type: value.json, value: aura-near-stranger, operator: not_contains, expected: "minecraft:speed" }
+      - { type: value.json, value: aura-far-family, operator: not_contains, expected: "minecraft:speed" }
       - { type: log.rate, pattern: "aura.*(?:apply|top.?up)", maxPerMinute: 2, windowSeconds: 60 }
   - id: persistence
     name: Preserve family, surname, adoption, hearth, and notary across a clean restart
     timeoutSeconds: 260
     actions:
       - { type: server.restart, reconnect: true }
-      - { type: client.command, client: alex, command: "family tree" }
-      - { type: client.command, client: alex, command: "family home info" }
-      - { type: client.command, client: alex, command: "notary list" }
+      - { type: client.command, client: alex, command: "kinship family tree" }
+      - { type: client.command, client: alex, command: "kinship home info" }
+      - { type: client.command, client: alex, command: "kinship notary list" }
+      - { type: wait.duration, milliseconds: 1000 }
     assertions:
       - { type: client.event, client: alex, event: message, pattern: "Ouroboros|KinBlair|KinDevon", count: 1, operator: gte }
   - id: stop

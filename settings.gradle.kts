@@ -13,3 +13,4 @@ plugins {
 
 rootProject.name = "ouroboros-test-harness"
 include(":bridge")
+include(":adapters:coffer")

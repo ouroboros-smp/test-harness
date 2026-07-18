@@ -10,7 +10,7 @@ const USER_AGENT = "ouroboros-test-harness/1.0 (https://github.com/ouroboros-smp
 export interface PreparedArtifacts {
   launcher: string;
   fabricApi: string;
-  bridge: string;
+  bridge?: string;
   supplied: Record<string, string>;
   checksums: Record<string, string>;
 }
@@ -34,8 +34,10 @@ export async function prepareArtifacts(
     join(cache, apiName),
     { userAgent: USER_AGENT },
   );
-  const bridge = resolve(repositoryRoot(), "bridge", "build", "libs", "ouro-harness-bridge-1.0.0.jar");
-  if (!(await fileExists(bridge))) {
+  const bridge = scenario.server?.controlBridge === false
+    ? undefined
+    : resolve(repositoryRoot(), "bridge", "build", "libs", "ouro-harness-bridge-1.0.0.jar");
+  if (bridge && !(await fileExists(bridge))) {
     throw new HarnessError("BRIDGE_NOT_BUILT", `Harness bridge is missing: ${bridge}. Run gradlew :bridge:build.`);
   }
 
@@ -75,14 +77,15 @@ export async function prepareArtifacts(
     }
     resolved[name] = artifactPath;
   }
+  const standardArtifacts = { launcher, fabricApi, ...(bridge ? { bridge } : {}) };
   return {
     launcher,
     fabricApi,
-    bridge,
+    ...(bridge ? { bridge } : {}),
     supplied: resolved,
     checksums: Object.fromEntries(
       await Promise.all(
-        Object.entries({ launcher, fabricApi, bridge, ...resolved }).map(async ([name, path]) => [name, await sha256File(path)]),
+        Object.entries({ ...standardArtifacts, ...resolved }).map(async ([name, path]) => [name, await sha256File(path)]),
       ),
     ),
   };
@@ -96,7 +99,11 @@ export async function installArtifacts(
   const modsDirectory = join(runDirectory, "mods");
   await mkdir(modsDirectory, { recursive: true });
   const installed: Record<string, string> = {};
-  for (const [name, source] of Object.entries({ fabricApi: artifacts.fabricApi, bridge: artifacts.bridge, ...artifacts.supplied })) {
+  const standardArtifacts = {
+    fabricApi: artifacts.fabricApi,
+    ...(artifacts.bridge ? { bridge: artifacts.bridge } : {}),
+  };
+  for (const [name, source] of Object.entries({ ...standardArtifacts, ...artifacts.supplied })) {
     const destinationKind: ArtifactSpec["destination"] = name === "fabricApi" || name === "bridge"
       ? "mods"
       : scenario.artifacts?.[name]?.destination ?? "mods";

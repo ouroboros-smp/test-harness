@@ -44,15 +44,19 @@ steps:
 | Family | Actions |
 |---|---|
 | Lifecycle | `server.start`, `server.stop`, `server.restart` |
-| Client | `client.connect`, `disconnect`, `reconnect`, `chat`, `command`, `move`, `look`, `use_block`, `place_block`, `break_block`, `attack`, `respawn`, `click_window` |
-| Control | `console.command`, `bridge.request` |
+| Client | `client.connect`, `disconnect`, `reconnect`, `chat`, `command`, `move`, `look`, `select_hotbar`, `use_block`, `place_block`, `break_block`, `attack`, `respawn`, `click_window` |
+| Control | `console.command`, `bridge.request`, `http.request` |
 | Time | `wait.duration`, `wait.ticks`, `wait.event` |
 | State | `file.write`, `sqlite.query`, `snapshot.capture` |
 | Load | `soak.run` with a repeatable nested `behavior` action list |
 | Extension | `adapter.invoke` with nested standard actions or a registered bridge adapter |
+| Service | `service.start`, `service.exec`, `service.stop` manage isolated Docker dependencies and retain logs |
+| External suite | `process.exec` runs an explicit command array in a declared working directory and captures its output as evidence |
 
 Values may reference `${run.directory}`, `${artifact.directory}`,
-`${server.port}`, `${bridge.port}`, `${artifact.NAME}`, and scenario variables.
+`${server.port}`, `${bridge.port}`, `${port.NAME}`, `${artifact.NAME}`,
+`${platform.gradleWrapper}`, and scenario variables. Supply scenario overrides
+with repeatable `--variable NAME=VALUE` flags.
 
 ## Standard assertions
 
@@ -60,13 +64,13 @@ Values may reference `${run.directory}`, `${artifact.directory}`,
 |---|---|
 | Server log | `log.absent`, `log.present`, `log.rate` |
 | Client | `client.event`, `client.inventory`, `client.state`, `client.window` |
-| Structured server state | `bridge.json`, `sqlite.query` |
+| Structured server state | `bridge.json`, `sqlite.query`, `value.json` |
 | Persistence | `snapshot.equals` |
 | Performance | `metric.threshold` |
 | Artifacts | `file.exists`, `file.json`, `command.output` |
 | Extension | `adapter.assert` |
 
-Comparison operators are `equals`, `not_equals`, `contains`, `matches`, `gte`,
+Comparison operators are `equals`, `not_equals`, `contains`, `not_contains`, `matches`, `gte`,
 `gt`, `lte`, `lt`, `exists`, and `absent`. JSON paths are dot-separated and may
 address array indices, for example `inventory.38.item`.
 
@@ -84,3 +88,5 @@ address array indices, for example `inventory.38.item`.
    allowlists defeat global failure detection.
 6. Put consumer probes in a separate harness-only adapter. Never add a bridge
    dependency or test entrypoint to a production jar.
+7. Use `controlBridge: false` for a client-only mod or a server mod whose
+   lifecycle must be observed without the harness bridge.

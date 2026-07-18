@@ -21,3 +21,20 @@ test("zero-valued diagnostic summaries are not treated as failures", () => {
   monitor.accept("error rate=0\n0 errors\n");
   assert.equal(monitor.findings.length, 0);
 });
+
+test("orderly Minecraft client teardown ignores only the first Netty frame attached to the stackless exception", () => {
+  const monitor = new LogMonitor();
+  monitor.accept("io.netty.channel.StacklessClosedChannelException\n");
+  monitor.accept("\tat io.netty.channel.AbstractChannel$AbstractUnsafe.write(Object, ChannelPromise)(Unknown Source)\n");
+  monitor.accept("\tat example.Consumer.explode(Consumer.java:42)\n");
+  monitor.accept("\tat io.netty.channel.AbstractChannel.close(ChannelPromise)(Unknown Source)\n");
+  assert.equal(monitor.findings.length, 2);
+  assert.match(monitor.findings[0]!.line, /Consumer\.explode/);
+  assert.match(monitor.findings[1]!.line, /AbstractChannel\.close/);
+});
+
+test("a standalone closed-channel-looking frame remains actionable", () => {
+  const monitor = new LogMonitor();
+  monitor.accept("\tat io.netty.channel.AbstractChannel.close(ChannelPromise)(Unknown Source)\n");
+  assert.equal(monitor.findings.length, 1);
+});

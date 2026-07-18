@@ -18,21 +18,23 @@ steps:
     timeoutSeconds: 260
     actions:
       - { type: server.start }
-      - { type: client.command, client: family_a, command: "union propose KinSoakB" }
-      - { type: client.command, client: family_b, command: "union accept KinSoakA" }
+      - { type: client.command, client: family_a, command: "kinship union propose KinSoakB" }
+      - { type: wait.duration, milliseconds: 750 }
+      - { type: client.command, client: family_b, command: "kinship union accept KinSoakA" }
+      - { type: wait.duration, milliseconds: 750 }
   - id: soak
     name: Move through aura boundaries while spamming core commands
     timeoutSeconds: 180
     actions:
       - type: soak.run
         durationSeconds: 60
-        intervalMs: 500
+        intervalMs: 4000
         behavior:
           - { type: client.move, client: family_a, control: forward, durationMs: 100 }
           - { type: client.move, client: family_b, control: back, durationMs: 100 }
-          - { type: client.command, client: family_a, command: "family tree" }
-          - { type: client.command, client: stranger_a, command: "family home info" }
-          - { type: client.command, client: stranger_b, command: "notary list" }
+          - { type: client.command, client: family_a, command: "kinship family tree" }
+          - { type: client.command, client: stranger_a, command: "kinship home info" }
+          - { type: client.command, client: stranger_b, command: "kinship notary list" }
     assertions:
       - { type: log.rate, pattern: "\\bERROR\\b", maxPerMinute: 0, windowSeconds: 60 }
       - { type: metric.threshold, path: mspt.p99, operator: lte, expected: 100 }

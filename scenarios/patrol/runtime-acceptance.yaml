@@ -1,0 +1,83 @@
+schemaVersion: 1
+id: patrol/runtime-acceptance
+title: Patrol Fabric vanilla-client commands, enforcer lifecycle, reload, and restart
+description: Exercises the packaged server jar through its supported player/admin surface and structured entity evidence.
+issues: [25]
+tags: [fabric, minecraft-26.2, server, vanilla-client, entities, restart]
+artifacts:
+  patrol: { required: true, description: Packaged Patrol Fabric server jar }
+clients:
+  - { name: officer, username: PatrolOfficer }
+  - { name: civilian, username: PatrolCivilian }
+server:
+  memoryMb: 1536
+  startupTimeoutSeconds: 240
+  reuseWorldOnRestart: true
+steps:
+  - id: start
+    name: Start the packaged server mod with two vanilla clients
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op PatrolOfficer" }
+    assertions:
+      - { type: log.present, pattern: "Patrol Fabric enabled" }
+      - { type: log.absent, pattern: "Patrol Fabric failed to start" }
+
+  - id: meter
+    name: Toggle the player-owned WANTED meter without admin permission
+    actions:
+      - { type: client.command, client: civilian, command: "patrol meter off" }
+      - { type: wait.duration, milliseconds: 500 }
+      - { type: client.command, client: civilian, command: "patrol meter on" }
+      - { type: wait.duration, milliseconds: 500 }
+    assertions:
+      - { type: client.event, client: civilian, event: message, pattern: "WANTED meter is off" }
+      - { type: client.event, client: civilian, event: message, pattern: "WANTED meter is on" }
+
+  - id: permission
+    name: Hide administrative controls from an ordinary player
+    actions:
+      - { type: client.command, client: civilian, command: "patrol drain" }
+      - { type: wait.duration, milliseconds: 1000 }
+    assertions:
+      - { type: client.event, client: civilian, event: message, pattern: "Unknown or incomplete command|Incorrect argument|permission" }
+
+  - id: spawn_and_drain
+    name: Spawn the real Fabric enforcer squad and drain it cleanly
+    timeoutSeconds: 90
+    actions:
+      - { type: client.command, client: officer, command: "patrol dev spawn" }
+      - { type: wait.ticks, ticks: 80 }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:iron_golem", jsonPath: "0.type", expected: minecraft:iron_golem }
+      - { type: log.present, pattern: "Patrol: deployed [1-9][0-9]* enforcer" }
+    
+  - id: drain
+    name: Remove all active squads and hot-reload configuration
+    actions:
+      - { type: client.command, client: officer, command: "patrol drain" }
+      - { type: wait.ticks, ticks: 20 }
+      - { type: client.command, client: officer, command: "patrol reload" }
+      - { type: wait.duration, milliseconds: 500 }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:iron_golem", jsonPath: "0", operator: absent }
+      - { type: client.event, client: officer, event: message, pattern: "all active squads drained" }
+      - { type: client.event, client: officer, event: message, pattern: "config reloaded" }
+
+  - id: restart_cleanup
+    name: Remove tagged enforcers across a clean restart
+    timeoutSeconds: 300
+    actions:
+      - { type: client.command, client: officer, command: "patrol dev spawn" }
+      - { type: wait.ticks, ticks: 80 }
+      - { type: server.restart, reconnect: true }
+      - { type: wait.ticks, ticks: 20 }
+    assertions:
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:iron_golem", jsonPath: "0", operator: absent }
+      - { type: log.absent, pattern: "orphan.*(?:remain|leak)|Patrol scheduled task failed|Patrol: Fabric deploy task failed" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

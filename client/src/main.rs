@@ -72,6 +72,7 @@ async fn run() -> Result<()> {
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut has_spawned = false;
+    let mut awaiting_respawn = false;
     let mut last_window = 0;
     let mut last_health: Option<f32> = None;
 
@@ -110,15 +111,21 @@ async fn run() -> Result<()> {
                 let Some(event) = event else { break };
                 match event {
                     Event::Spawn => {
-                        let event_type = if has_spawned { "respawn" } else { "spawn" };
+                        let event_type = if has_spawned { "dimension_change" } else { "spawn" };
                         has_spawned = true;
+                        awaiting_respawn = false;
                         emit_event(event_type, snapshot(&client));
                     }
                     Event::Chat(message) => emit_event("message", json!({ "message": message.content() })),
-                    Event::Death(reason) => emit_event("death", json!({
-                        "reason": reason.map(|packet| packet.message.to_string()),
-                        "state": snapshot(&client),
-                    })),
+                    Event::Death(reason) => {
+                        if !awaiting_respawn {
+                            awaiting_respawn = true;
+                            emit_event("death", json!({
+                                "reason": reason.map(|packet| packet.message.to_string()),
+                                "state": snapshot(&client),
+                            }));
+                        }
+                    }
                     Event::AddPlayer(player) => emit_event("player_joined", json!({
                         "username": player.profile.name,
                         "uuid": player.uuid.to_string(),
@@ -182,6 +189,14 @@ fn execute(client: &Client, request: Request) -> Result<(Value, bool)> {
                 required_f64(&data, "yaw")? as f32,
                 required_f64(&data, "pitch")? as f32,
             )?;
+            Value::Null
+        }
+        "select_hotbar" => {
+            let slot = required_u64(&data, "slot")?;
+            if slot > 8 {
+                bail!("hotbar slot must be in the range 0..=8");
+            }
+            client.set_selected_hotbar_slot(slot as u8);
             Value::Null
         }
         "move" => {

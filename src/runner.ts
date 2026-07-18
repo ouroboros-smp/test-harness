@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
@@ -34,6 +35,8 @@ interface RunnerContext {
   values: Record<string, JsonValue>;
   snapshots: Map<string, JsonValue>;
   tickSamples: number[];
+  services: Map<string, { container: string }>;
+  serviceArtifacts: Record<string, string>;
 }
 
 export async function runScenario(scenario: Scenario, basePins: FabricPins, options: RunOptions): Promise<ScenarioReport> {
@@ -78,10 +81,25 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
   const cacheDirectory = options.cache ?? join(repositoryRoot(), ".ouro-harness", "cache");
   const prepared = await prepareArtifacts(scenario, pins, options.artifacts, cacheDirectory);
   const installed = await installArtifacts(runDirectory, scenario, prepared);
-  const serverPort = await getFreePort();
-  const bridgePort = await getFreePort();
+  const allocatedPorts = new Set<number>();
+  const allocatePort = async (): Promise<number> => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const port = await getFreePort();
+      if (!allocatedPorts.has(port)) {
+        allocatedPorts.add(port);
+        return port;
+      }
+    }
+    throw new HarnessError("PORT_ALLOCATION_FAILED", "Could not allocate a unique loopback port");
+  };
+  const serverPort = await allocatePort();
+  const bridgePort = await allocatePort();
+  const namedPorts: Record<string, number> = {};
+  for (const name of scenario.ports ?? []) namedPorts[name] = await allocatePort();
   const token = randomToken();
-  const javaExecutable = process.env.OURO_HARNESS_JAVA ?? "java";
+  const javaExecutable = process.env[`OURO_HARNESS_JAVA_${pins.java}`]
+    ?? process.env.OURO_HARNESS_JAVA
+    ?? "java";
   const server = new MinecraftServer(runDirectory, javaExecutable, scenario.server ?? {}, {
     ...process.env,
     OURO_HARNESS_PORT: String(bridgePort),
@@ -107,11 +125,15 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
       "artifact.directory": artifactDirectory,
       "server.port": serverPort,
       "bridge.port": bridgePort,
+      "platform.gradleWrapper": process.platform === "win32" ? "gradlew.bat" : "./gradlew",
+      ...Object.fromEntries(Object.entries(namedPorts).map(([name, port]) => [`port.${name}`, port])),
       ...Object.fromEntries(Object.entries(installed).map(([name, path]) => [`artifact.${name}`, path])),
       ...scenario.variables,
     },
     snapshots: new Map(),
     tickSamples: [],
+    services: new Map(),
+    serviceArtifacts: {},
   };
 
   const results: StepResult[] = [];
@@ -144,7 +166,14 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
       if (!originalError) originalError = cleanupError;
       else context.values["cleanup.error"] = errorMessage(cleanupError);
     }
-    await server.closeLog();
+    try {
+      await cleanupServices(context);
+    } catch (cleanupError) {
+      if (!originalError) originalError = cleanupError;
+      else context.values["service.cleanup.error"] = errorMessage(cleanupError);
+    } finally {
+      await server.closeLog();
+    }
   }
 
   const clientEventPaths: Record<string, string> = {};
@@ -197,6 +226,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
       directory: artifactDirectory,
       "server-log": join(artifactDirectory, "harness-server.log"),
       ...clientEventPaths,
+      ...context.serviceArtifacts,
     },
     ...(originalError
       ? { failureSummary: `${errorMessage(originalError)}\n\nServer log tail:\n${server.monitor.tail(80).join("\n")}` }
@@ -214,7 +244,12 @@ async function executeStep(context: RunnerContext, step: ScenarioStep): Promise<
       for (const action of step.actions ?? []) await executeAction(context, interpolate(action as JsonValue, context.values) as HarnessAction, evidence);
       for (const assertion of step.assertions ?? []) await executeAssertion(context, interpolate(assertion as JsonValue, context.values) as HarnessAssertion, evidence);
     };
-    await withTimeout(task(), (step.timeoutSeconds ?? context.scenario.server?.commandTimeoutSeconds ?? 30) * 1000, `step ${step.id}`);
+    const hasLifecycleStart = (step.actions ?? []).some((action) =>
+      action.type === "server.start" || action.type === "server.restart");
+    const defaultTimeoutSeconds = hasLifecycleStart
+      ? (context.scenario.server?.startupTimeoutSeconds ?? 180) + 30
+      : context.scenario.server?.commandTimeoutSeconds ?? 30;
+    await withTimeout(task(), (step.timeoutSeconds ?? defaultTimeoutSeconds) * 1000, `step ${step.id}`);
     const finished = Date.now();
     return {
       id: step.id,
@@ -263,32 +298,67 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
   switch (action.type) {
     case "server.start":
       await context.server.start();
-      await context.bridge.waitUntilReady();
+      if (context.scenario.server?.controlBridge !== false) await context.bridge.waitUntilReady();
       for (const value of context.clients.values()) if (value.spec.connectOnStart !== false) await connectClient(context, value);
       return;
     case "server.stop":
+      for (const value of context.clients.values()) await value.disconnect("Harness server stop");
       await context.server.stop();
       return;
     case "server.restart": {
       const reconnect = action.reconnect !== false;
+      for (const value of context.clients.values()) await value.disconnect("Harness server restart");
       await context.server.stop();
       await context.server.start();
-      await context.bridge.waitUntilReady();
+      if (context.scenario.server?.controlBridge !== false) await context.bridge.waitUntilReady();
       if (reconnect) for (const value of context.clients.values()) await connectClient(context, value, true);
       return;
     }
-    case "client.connect": await connectClient(context, client(), false, number("timeoutMs", 30_000)); return;
+    case "client.connect": {
+      try {
+        await connectClient(context, client(), false, number("timeoutMs", 30_000));
+      } catch (error) {
+        if (action.allowFailure !== true) throw error;
+        const failure = errorMessage(error);
+        if (typeof action.as === "string") context.values[action.as] = failure;
+        evidence[`client:${string("client")}:connect-failure`] = failure;
+      }
+      return;
+    }
     case "client.disconnect": await client().disconnect(string("reason", "Scenario step")); return;
-    case "client.reconnect": await connectClient(context, client(), true, number("timeoutMs", 30_000)); return;
+    case "client.reconnect": {
+      try {
+        await connectClient(context, client(), true, number("timeoutMs", 30_000));
+      } catch (error) {
+        if (action.allowFailure !== true) throw error;
+        const failure = errorMessage(error);
+        if (typeof action.as === "string") context.values[action.as] = failure;
+        evidence[`client:${string("client")}:reconnect-failure`] = failure;
+      }
+      return;
+    }
     case "client.chat": await client().chat(string("message")); return;
     case "client.command": await client().chat(`/${string("command").replace(/^\//, "")}`); return;
     case "client.look": await client().look(number("yaw"), number("pitch")); return;
+    case "client.select_hotbar": await client().selectHotbar(number("slot")); return;
     case "client.move": await client().move(string("control") as never, number("durationMs", 500)); return;
-    case "client.use_block": await client().useBlock(number("x"), number("y"), number("z")); return;
-    case "client.break_block": await client().breakBlock(number("x"), number("y"), number("z")); return;
+    case "client.use_block": {
+      const target = client();
+      const pos = await clientBlockPosition(action, target);
+      await target.useBlock(pos.x, pos.y, pos.z);
+      return;
+    }
+    case "client.break_block": {
+      const target = client();
+      const pos = await clientBlockPosition(action, target);
+      await target.breakBlock(pos.x, pos.y, pos.z);
+      return;
+    }
     case "client.place_block": {
       const face = action.face as { x?: number; y?: number; z?: number } | undefined;
-      await client().placeBlock(number("x"), number("y"), number("z"), { x: face?.x ?? 0, y: face?.y ?? 1, z: face?.z ?? 0 });
+      const target = client();
+      const pos = await clientBlockPosition(action, target);
+      await target.placeBlock(pos.x, pos.y, pos.z, { x: face?.x ?? 0, y: face?.y ?? 1, z: face?.z ?? 0 });
       return;
     }
     case "client.attack": await client().attack(string("target")); return;
@@ -381,6 +451,149 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       }
       return;
     }
+    case "http.request": {
+      const url = string("url");
+      const method = string("method", "GET");
+      const rawHeaders = action.headers && typeof action.headers === "object" && !Array.isArray(action.headers)
+        ? action.headers as Record<string, JsonValue>
+        : {};
+      const headers = Object.fromEntries(
+        Object.entries(rawHeaders).map(([name, value]) => [name, String(value)]),
+      );
+      let body: string | undefined;
+      if (typeof action.body === "string") body = action.body;
+      else if (action.body !== undefined) {
+        body = JSON.stringify(action.body);
+        if (!Object.keys(headers).some((name) => name.toLowerCase() === "content-type")) {
+          headers["content-type"] = "application/json";
+        }
+      }
+      const response = await fetch(url, {
+        method,
+        headers,
+        ...(body === undefined ? {} : { body }),
+        signal: AbortSignal.timeout(number("timeoutMs", 15_000)),
+      });
+      const responseText = await response.text();
+      let parsedBody: JsonValue = responseText;
+      if (responseText && response.headers.get("content-type")?.includes("json")) {
+        try { parsedBody = JSON.parse(responseText) as JsonValue; } catch { /* retain text for evidence */ }
+      }
+      const result: JsonValue = {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: parsedBody,
+      };
+      if (!response.ok && action.allowFailure !== true) {
+        throw new HarnessError("HTTP_REQUEST_FAILED", `${method} ${url} returned ${response.status}`, result);
+      }
+      if (typeof action.as === "string") context.values[action.as] = result;
+      evidence[`http:${method}:${url}`] = result;
+      return;
+    }
+    case "service.start": {
+      const name = string("name");
+      if (context.services.has(name)) throw new HarnessError("SERVICE_ALREADY_RUNNING", `Service ${name} is already running`);
+      const runId = String(context.values["run.id"] ?? "run").replaceAll(/[^a-zA-Z0-9_.-]/g, "-");
+      const container = `ouro-harness-${runId}-${name}`.slice(0, 120);
+      const args = ["run", "--detach", "--name", container];
+      const environment = action.environment && typeof action.environment === "object" && !Array.isArray(action.environment)
+        ? action.environment as Record<string, JsonValue>
+        : {};
+      for (const [key, value] of Object.entries(environment)) args.push("--env", `${key}=${String(value)}`);
+      const ports = action.ports && typeof action.ports === "object" && !Array.isArray(action.ports)
+        ? action.ports as Record<string, JsonValue>
+        : {};
+      for (const [containerPort, hostPort] of Object.entries(ports)) {
+        args.push("--publish", `127.0.0.1:${String(hostPort)}:${containerPort}`);
+      }
+      if (Array.isArray(action.options)) args.push(...action.options.map(String));
+      args.push(string("image"));
+      if (Array.isArray(action.command)) args.push(...action.command.map(String));
+      const output = await runExternal("docker", args, number("timeoutMs", 120_000));
+      context.services.set(name, { container });
+      evidence[`service:${name}:start`] = { container, output: output.trim() };
+      if (typeof action.waitForLog === "string") {
+        const pattern = new RegExp(action.waitForLog, typeof action.flags === "string" ? action.flags : "i");
+        const timeoutMs = number("waitTimeoutMs", 90_000);
+        const started = Date.now();
+        while (true) {
+          const logs = await runExternal("docker", ["logs", container], 15_000).catch(() => "");
+          if (pattern.test(logs)) break;
+          if (Date.now() - started > timeoutMs) {
+            throw new HarnessError("SERVICE_READINESS_TIMEOUT", `Service ${name} did not emit ${pattern}`, logs.slice(-8_000));
+          }
+          await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+        }
+      }
+      return;
+    }
+    case "service.exec": {
+      const name = string("name");
+      const service = context.services.get(name);
+      if (!service) throw new HarnessError("UNKNOWN_SERVICE", `Service ${name} is not running`);
+      if (!Array.isArray(action.command) || action.command.length === 0) {
+        throw new HarnessError("INVALID_ACTION", "service.exec.command must contain one or more arguments");
+      }
+      const output = await runExternal(
+        "docker",
+        ["exec", service.container, ...action.command.map(String)],
+        number("timeoutMs", 60_000),
+      );
+      if (typeof action.as === "string") context.values[action.as] = output;
+      evidence[`service:${name}:exec`] = output;
+      return;
+    }
+    case "service.stop": {
+      const name = string("name");
+      await cleanupService(context, name);
+      return;
+    }
+    case "process.exec": {
+      if (!Array.isArray(action.command) || action.command.length === 0 || action.command.some((part) => typeof part !== "string")) {
+        throw new HarnessError("INVALID_ACTION", "process.exec.command must be a non-empty string array");
+      }
+      const [command, ...args] = action.command as string[];
+      const batch = process.platform === "win32" && /\.(?:bat|cmd)$/i.test(command!);
+      const executable = batch ? (process.env.ComSpec ?? "cmd.exe") : command!;
+      const executableArgs = batch ? ["/d", "/s", "/c", command!, ...args] : args;
+      const cwd = resolve(repositoryRoot(), string("cwd", "."));
+      const javaMajor = number("java", context.pins.java);
+      const javaExecutable = process.env[`OURO_HARNESS_JAVA_${javaMajor}`];
+      const javaHome = javaExecutable ? dirname(dirname(javaExecutable)) : process.env.JAVA_HOME;
+      const rawEnvironment = action.environment && typeof action.environment === "object" && !Array.isArray(action.environment)
+        ? action.environment as Record<string, JsonValue>
+        : {};
+      const environment = Object.fromEntries(Object.entries(rawEnvironment).map(([name, value]) => [name, String(value)]));
+      const output = await new Promise<string>((resolveCommand, rejectCommand) => {
+        execFile(executable, executableArgs, {
+          cwd,
+          encoding: "utf8",
+          timeout: number("timeoutMs", 600_000),
+          windowsHide: true,
+          maxBuffer: 32 * 1024 * 1024,
+          env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}), ...environment },
+        }, (error, stdout, stderr) => {
+          const combined = `${stdout}${stderr}`;
+          if (error) {
+            rejectCommand(new HarnessError(
+              "EXTERNAL_COMMAND_FAILED",
+              `${command} ${args.join(" ")} failed: ${(combined || error.message).trim()}`,
+            ));
+          } else resolveCommand(combined);
+        });
+      });
+      if (typeof action.as === "string") context.values[action.as] = output;
+      evidence[`process:${command}`] = output;
+      if (typeof action.artifactName === "string") {
+        const path = confinedPath(context.artifactDirectory, action.artifactName);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, output, "utf8");
+        context.serviceArtifacts[`process-${action.artifactName}`] = path;
+      }
+      return;
+    }
     default: throw new HarnessError("UNSUPPORTED_ACTION", `Unsupported action ${action.type}`);
   }
 }
@@ -416,12 +629,25 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
     case "client.event": {
       const target = context.clients.get(string("client"));
       if (!target) throw new HarnessError("UNKNOWN_CLIENT", string("client"));
-      let events = target.matchingEvents(string("event"), Number(assertion.since ?? 0));
-      if (typeof assertion.pattern === "string") {
-        const pattern = new RegExp(assertion.pattern);
-        events = events.filter((event) => pattern.test(JSON.stringify(event.data)));
+      const matching = (): ReturnType<ProtocolClient["matchingEvents"]> => {
+        let matches = target.matchingEvents(string("event"), Number(assertion.since ?? 0));
+        if (typeof assertion.pattern === "string") {
+          const pattern = new RegExp(assertion.pattern, typeof assertion.flags === "string" ? assertion.flags : "i");
+          matches = matches.filter((event) => pattern.test(JSON.stringify(event.data)));
+        }
+        return matches;
+      };
+      const operator = assertion.operator ?? "gte";
+      const expectedCount = Number(assertion.count ?? 1);
+      let events = matching();
+      if ((operator === "gte" || operator === "equals") && expectedCount > 0 && events.length < expectedCount) {
+        const deadline = Date.now() + Number(assertion.timeoutMs ?? 2_000);
+        while (events.length < expectedCount && Date.now() < deadline) {
+          await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+          events = matching();
+        }
       }
-      assertComparison(events.length, assertion.operator ?? "gte", assertion.count ?? 1, "client event count");
+      assertComparison(events.length, operator, expectedCount, "client event count");
       evidence[`events:${target.spec.name}:${string("event")}`] = JSON.parse(JSON.stringify(events)) as JsonValue;
       return;
     }
@@ -497,6 +723,14 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
       assertComparison(actual, assertion.operator ?? "equals", assertion.expected, `${string("adapter")}.${string("operation")}`);
       return;
     }
+    case "value.json": {
+      const name = string("value");
+      const value = context.values[name];
+      const actual = getJsonPath(value ?? null, string("jsonPath", "$"));
+      assertComparison(actual, assertion.operator ?? "equals", assertion.expected, `value ${name}`);
+      evidence[`value:${name}`] = value ?? null;
+      return;
+    }
     default: throw new HarnessError("UNSUPPORTED_ASSERTION", `Unsupported assertion ${assertion.type}`);
   }
 }
@@ -510,7 +744,14 @@ function assertComparison(actual: unknown, operator: JsonValue, expected: unknow
       ? actual.includes(String(expected))
       : Array.isArray(actual)
         ? actual.some((item) => isDeepStrictEqual(item, expected))
+          || JSON.stringify(actual).includes(String(expected))
         : JSON.stringify(actual).includes(String(expected)); break;
+    case "not_contains": passed = typeof actual === "string"
+      ? !actual.includes(String(expected))
+      : Array.isArray(actual)
+        ? !actual.some((item) => isDeepStrictEqual(item, expected))
+          && !JSON.stringify(actual).includes(String(expected))
+        : !JSON.stringify(actual).includes(String(expected)); break;
     case "matches": passed = new RegExp(String(expected)).test(String(actual)); break;
     case "gte": passed = Number(actual) >= Number(expected); break;
     case "gt": passed = Number(actual) > Number(expected); break;
@@ -521,6 +762,32 @@ function assertComparison(actual: unknown, operator: JsonValue, expected: unknow
     default: throw new HarnessError("INVALID_OPERATOR", `Unknown comparison operator ${String(operator)}`);
   }
   if (!passed) throw new HarnessError("ASSERTION_FAILED", `${label}: expected ${String(operator)} ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+async function clientBlockPosition(
+  action: HarnessAction,
+  client: ProtocolClient,
+): Promise<{ x: number; y: number; z: number }> {
+  const requested = {
+    x: Number(action.x ?? 0),
+    y: Number(action.y ?? 0),
+    z: Number(action.z ?? 0),
+  };
+  if (action.relative !== true) return requested;
+  const state = await client.state();
+  const base = {
+    x: Number(getJsonPath(state, "position.x")),
+    y: Number(getJsonPath(state, "position.y")),
+    z: Number(getJsonPath(state, "position.z")),
+  };
+  if (![...Object.values(requested), ...Object.values(base)].every(Number.isFinite)) {
+    throw new HarnessError("CLIENT_POSITION_UNAVAILABLE", `Cannot resolve a relative block position for ${client.spec.name}`);
+  }
+  return {
+    x: Math.floor(base.x) + requested.x,
+    y: Math.floor(base.y) + requested.y,
+    z: Math.floor(base.z) + requested.z,
+  };
 }
 
 function confinedPath(root: string, path: string): string {
@@ -566,4 +833,47 @@ async function removeRunDirectory(output: string, runDirectory: string): Promise
     throw new HarnessError("UNSAFE_CLEANUP_PATH", `Refusing to remove unexpected run directory: ${runPath}`);
   }
   await rm(runPath, { recursive: true, force: true });
+}
+
+async function runExternal(command: string, args: string[], timeoutMs: number): Promise<string> {
+  return await new Promise<string>((resolveCommand, rejectCommand) => {
+    execFile(command, args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          rejectCommand(new HarnessError(
+            "EXTERNAL_COMMAND_FAILED",
+            `${command} ${args[0] ?? ""} failed: ${(stderr || stdout || error.message).trim()}`,
+          ));
+          return;
+        }
+        resolveCommand(`${stdout}${stderr}`);
+      });
+  });
+}
+
+async function cleanupService(context: RunnerContext, name: string): Promise<void> {
+  const service = context.services.get(name);
+  if (!service) return;
+  const logs = await runExternal("docker", ["logs", service.container], 15_000)
+    .catch((error) => errorMessage(error));
+  const logPath = join(context.artifactDirectory, `service-${name}.log`);
+  await writeFile(logPath, logs, "utf8");
+  context.serviceArtifacts[`service-${name}-log`] = logPath;
+  try {
+    await runExternal("docker", ["rm", "--force", "--volumes", service.container], 30_000);
+  } catch (error) {
+    const failure = errorMessage(error);
+    context.values[`service.${name}.cleanupError`] = failure;
+    throw new HarnessError("SERVICE_CLEANUP_FAILED", `Could not remove service ${name}: ${failure}`);
+  }
+  context.services.delete(name);
+}
+
+async function cleanupServices(context: RunnerContext): Promise<void> {
+  const failures: string[] = [];
+  for (const name of [...context.services.keys()]) {
+    try { await cleanupService(context, name); }
+    catch (error) { failures.push(errorMessage(error)); }
+  }
+  if (failures.length) throw new HarnessError("SERVICE_CLEANUP_FAILED", failures.join("; "));
 }

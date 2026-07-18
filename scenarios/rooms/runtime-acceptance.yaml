@@ -1,0 +1,97 @@
+schemaVersion: 1
+id: rooms/runtime-acceptance
+title: Rooms Fabric discovery, diagnostics, persistence, and lifecycle acceptance
+description: Builds a real enclosed room around a protocol client, places its door through a player packet, and verifies durable discovery through the public operator and SQLite boundaries.
+issues: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+tags: [fabric, minecraft-26.2, rooms, discovery, vanilla-client, sqlite, restart]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric server jar }
+clients:
+  - { name: builder, username: RoomsBuilder }
+  - { name: visitor, username: RoomsVisitor }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+steps:
+  - id: start
+    name: Start the packaged server mod with operator and ordinary clients
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op RoomsBuilder" }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run tp RoomsVisitor ~10 ~ ~" } }
+    assertions:
+      - { type: file.exists, path: config/rooms/rooms.db }
+      - { type: log.absent, pattern: "Failed to initialize Rooms|Rooms database.*failed" }
+
+  - id: permission
+    name: Hide operator diagnostics from ordinary players
+    actions:
+      - { type: client.command, client: visitor, command: "room debug" }
+    assertions:
+      - { type: client.event, client: visitor, event: message, pattern: "Unknown or incomplete command|Incorrect argument|permission" }
+
+  - id: fixture
+    name: Enclose the real player and place the attributed entrance through Minecraft protocol
+    timeoutSeconds: 90
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-3 ~3 ~-3 ~3 ~3 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-3 ~ ~-3 ~-3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~3 ~ ~-3 ~3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-2 ~ ~-3 ~2 ~2 ~-3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-2 ~ ~3 ~2 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run setblock ~ ~ ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run setblock ~ ~1 ~3 minecraft:air" } }
+      - { type: console.command, command: "give RoomsBuilder minecraft:oak_door 1" }
+      - { type: wait.duration, seconds: 1 }
+      - { type: snapshot.capture, name: builder-door-ready, client: builder }
+      - { type: client.look, client: builder, yaw: 0, pitch: 0 }
+      - { type: client.place_block, client: builder, relative: true, x: 0, y: -1, z: 3 }
+      - { type: wait.duration, seconds: 15 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM rooms", as: discovered-rooms }
+    assertions:
+      - { type: value.json, value: discovered-rooms, jsonPath: "0.count", operator: gte, expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM placement_log", jsonPath: "0.count", operator: gte, expected: 1 }
+
+  - id: diagnostics
+    name: Exercise the supported operator diagnostics on the discovered physical room
+    timeoutSeconds: 90
+    actions:
+      - { type: client.command, client: builder, command: "room debug" }
+      - { type: client.command, client: builder, command: "room bounds" }
+      - { type: client.command, client: builder, command: "room rescan" }
+      - { type: wait.duration, seconds: 4 }
+    assertions:
+      - { type: client.event, client: builder, event: message, pattern: "UNDEFINED|classification|score|Room" }
+      - { type: client.event, client: builder, event: message, pattern: "Showing the room's shell|scanned shape" }
+      - { type: client.event, client: builder, event: message, pattern: "Rescan complete" }
+
+  - id: restart
+    name: Reload durable room identity and saved scan state after a clean restart
+    timeoutSeconds: 360
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: wait.duration, seconds: 5 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM rooms", as: rooms-after-restart }
+      - { type: client.command, client: builder, command: "room debug" }
+    assertions:
+      - { type: value.json, value: rooms-after-restart, jsonPath: "0.count", operator: gte, expected: 1 }
+      - { type: client.event, client: builder, event: message, pattern: "UNDEFINED|classification|score|Room" }
+      - { type: log.absent, pattern: "thread check|wrong thread|ConcurrentModificationException|Failed to load room" }
+
+  - id: lifecycle
+    name: Retire the containing room through the supported tombstone path
+    timeoutSeconds: 90
+    actions:
+      - { type: client.command, client: builder, command: "room tombstone-now" }
+      - { type: wait.duration, seconds: 3 }
+    assertions:
+      - { type: client.event, client: builder, event: message, pattern: "tombstone|retired|abandon" }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM tombstones", jsonPath: "0.count", operator: gte, expected: 1 }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

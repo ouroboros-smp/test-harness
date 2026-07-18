@@ -1,0 +1,72 @@
+schemaVersion: 1
+id: ourometrics/exporter-lifecycle
+title: OuroMetrics 1.21.11 exporter, configuration, and restart lifecycle
+description: Runs the packaged Java 21 Fabric mod without the 26.2 control bridge and verifies its real Prometheus endpoint.
+issues: [28]
+tags: [fabric, minecraft-1.21.11, java-21, server, metrics, http, restart]
+pins:
+  minecraft: 1.21.11
+  loader: 0.19.3
+  fabricApi: 0.141.4+1.21.11
+  installer: 1.1.1
+  java: 21
+  protocol: 774
+ports: [metrics]
+artifacts:
+  ourometrics: { required: true, description: Packaged OuroMetrics Fabric server jar }
+server:
+  controlBridge: false
+  memoryMb: 1536
+  startupTimeoutSeconds: 240
+  shutdownTimeoutSeconds: 45
+  reuseWorldOnRestart: true
+steps:
+  - id: configure
+    name: Configure a loopback exporter on an isolated port
+    actions:
+      - type: file.write
+        path: config/ouro-metrics.properties
+        content: "bind=127.0.0.1\nport=${port.metrics}\njvm-metrics=true\nserver-metrics=true\n"
+
+  - id: start
+    name: Start the packaged 1.21.11 server mod
+    actions:
+      - { type: server.start }
+    assertions:
+      - { type: log.present, pattern: "Prometheus exporter listening on 127\\.0\\.0\\.1:${port.metrics}/metrics" }
+      - { type: log.absent, pattern: "Failed to (?:load OuroMetrics configuration|start Prometheus exporter)" }
+
+  - id: scrape
+    name: Scrape JVM and server metrics through the real exporter
+    actions:
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: first-scrape }
+    assertions:
+      - { type: value.json, value: first-scrape, jsonPath: status, expected: 200 }
+      - { type: value.json, value: first-scrape, jsonPath: headers.content-type, operator: contains, expected: text }
+      - { type: value.json, value: first-scrape, jsonPath: body, operator: contains, expected: jvm_ }
+      - { type: value.json, value: first-scrape, jsonPath: body, operator: contains, expected: ouro_server_players_online }
+      - { type: value.json, value: first-scrape, jsonPath: body, operator: contains, expected: ouro_server_mods_loaded }
+
+  - id: restart
+    name: Release the exporter port and bind it again on restart
+    timeoutSeconds: 300
+    actions:
+      - { type: server.restart, reconnect: false }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: second-scrape }
+    assertions:
+      - { type: value.json, value: second-scrape, jsonPath: status, expected: 200 }
+      - { type: value.json, value: second-scrape, jsonPath: body, operator: contains, expected: ouro_server_players_online }
+      - { type: log.absent, pattern: "Address already in use|Failed to start Prometheus exporter" }
+
+  - id: stop
+    name: Stop cleanly and close the exporter
+    actions:
+      - { type: server.stop }
+    assertions:
+      - { type: log.present, pattern: "Prometheus exporter stopped", count: 2, operator: gte }
+
+  - id: cleanup
+    name: Stop after an earlier failure
+    always: true
+    actions:
+      - { type: server.stop }
