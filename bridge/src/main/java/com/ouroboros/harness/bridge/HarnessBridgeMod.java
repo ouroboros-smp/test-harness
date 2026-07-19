@@ -119,6 +119,7 @@ public final class HarnessBridgeMod implements ModInitializer {
             else if (method.equals("GET") && path.equals("/v1/player/state")) response = onServer(() -> playerState(required(query, "name")));
             else if (method.equals("PUT") && path.equals("/v1/player/inventory")) response = onServer(() -> setInventory(body));
             else if (method.equals("POST") && path.equals("/v1/command")) response = onServer(() -> command(body));
+            else if (method.equals("GET") && path.equals("/v1/world/block")) response = onServer(() -> block(query));
             else if (method.equals("POST") && path.equals("/v1/world/block")) response = onServer(() -> setBlock(body));
             else if (method.equals("POST") && path.equals("/v1/player/damage")) response = onServer(() -> damage(body));
             else if (method.equals("POST") && path.equals("/v1/permissions")) response = onServer(() -> setPermission(body));
@@ -277,6 +278,26 @@ public final class HarnessBridgeMod implements ModInitializer {
         int y = requiredInt(body, "y");
         int z = requiredInt(body, "z");
         return command(object("command", "setblock " + x + " " + y + " " + z + " " + block));
+    }
+
+    private JsonObject block(Map<String, String> query) {
+        int x = Integer.parseInt(required(query, "x"));
+        int y = Integer.parseInt(required(query, "y"));
+        int z = Integer.parseInt(required(query, "z"));
+        String dimension = query.getOrDefault("dimension", "minecraft:overworld");
+        ServerLevel level = null;
+        for (ServerLevel candidate : requireServer().getAllLevels()) {
+            if (candidate.dimension().identifier().toString().equals(dimension)) level = candidate;
+        }
+        if (level == null) throw new IllegalArgumentException("unknown dimension: " + dimension);
+        var state = level.getBlockState(new net.minecraft.core.BlockPos(x, y, z));
+        return object(
+                "block", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
+                "state", state.toString(),
+                "dimension", dimension,
+                "x", x,
+                "y", y,
+                "z", z);
     }
 
     private JsonObject damage(JsonObject body) {

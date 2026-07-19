@@ -22,6 +22,9 @@ harness-only bridge on 2026-07-18.
 | #27 | WildAnimalBalancer census, bounded top-up, metrics, reload, and persistence | `wildanimalbalancer/population-acceptance` |
 | #28 | OuroMetrics 1.21.11 exporter, config, HTTP metrics, and restart lifecycle | `ourometrics/exporter-lifecycle` |
 | #29 | Blindfold 1.21.11 real-client commands, effects, external removal, and sprint behavior | `blindfold/client-gametest` |
+| #32 | Server-acknowledged real-client block placement with before/after evidence | `coffer/runtime-acceptance`, `rooms/runtime-acceptance` |
+| #33 | Deterministic generated-terrain fixtures for containers, rooms, and entity spawning | `coffer/runtime-acceptance`, `rooms/runtime-acceptance`, `patrol/runtime-acceptance` |
+| #34 | Server-tick synchronization for repeated KeepGear death/respawn cases | `keepgear/acceptance` |
 
 `node dist/cli.js validate --require-all-issues` fails if any tracked issue
 loses scenario coverage. Unit tests enforce the same invariant, and a separate

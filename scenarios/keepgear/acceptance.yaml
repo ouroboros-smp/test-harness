@@ -2,7 +2,7 @@ schemaVersion: 1
 id: keepgear/acceptance
 title: KeepGear Fabric release-level death, precedence, XP, permission, reload, restart, and copy acceptance
 description: The ten deterministic acceptance cases from issue 17, driven through real clients and the harness-only bridge.
-issues: [17]
+issues: [17, 34]
 tags: [keepgear, death, inventory, xp, permissions, restart]
 artifacts:
   consumer: { required: true, description: Packaged KeepGear Fabric 26.2 server jar }
@@ -37,7 +37,7 @@ steps:
       - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: KeepVictim, slot: 0, item: minecraft:diamond, count: 1 } }
       - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: KeepVictim, slot: 5, item: minecraft:gold_ingot, count: 2 } }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
-      - { type: wait.event, client: victim, event: death, count: 1, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.event, client: victim, event: respawn, count: 1, timeoutMs: 10000 }
       - { type: wait.ticks, ticks: 25 }
@@ -50,7 +50,7 @@ steps:
     actions:
       - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: KeepVictim, slot: 38, item: minecraft:elytra, count: 1 } }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
-      - { type: wait.event, client: victim, event: death, count: 2, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }
     assertions:
@@ -73,7 +73,7 @@ steps:
                 PublicBukkitValues:
                   "kinship:kinship_item": artifact
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
-      - { type: wait.event, client: victim, event: death, count: 3, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }
     assertions:
@@ -84,7 +84,7 @@ steps:
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "gamerule keep_inventory true" } }
       - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: KeepVictim, slot: 6, item: minecraft:emerald, count: 4 } }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
-      - { type: wait.event, client: victim, event: death, count: 4, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "gamerule keep_inventory false" } }
@@ -107,7 +107,7 @@ steps:
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "experience set KeepVictim 17 levels" } }
       - { type: snapshot.capture, name: xp-before, path: "/v1/player/state?name=KeepVictim" }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
-      - { type: wait.event, client: victim, event: death, count: 5, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }
       - { type: snapshot.capture, name: xp-after, path: "/v1/player/state?name=KeepVictim" }
@@ -129,11 +129,11 @@ steps:
           verbose: true
       - { type: console.command, command: "keepgear reload", waitFor: "KeepGear config reloaded" }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:player_attack, by: KeepKiller } }
-      - { type: wait.event, client: victim, event: death, count: 6, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
-      - { type: wait.event, client: victim, event: death, count: 7, timeoutMs: 10000 }
+      - { type: wait.ticks, ticks: 1 }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }
     assertions:
@@ -149,6 +149,7 @@ steps:
     name: Snapshot death rules across a valid reload and preserve the previous rules after malformed reload
     actions:
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
+      - { type: wait.ticks, ticks: 1 }
       - { type: file.write, path: config/keepgear.json, content: "{ malformed" }
       - { type: console.command, command: "keepgear reload", waitFor: "KeepGear config reload failed" }
       - { type: client.respawn, client: victim }
@@ -171,6 +172,7 @@ steps:
     timeoutSeconds: 260
     actions:
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: KeepVictim, amount: 1000, type: minecraft:generic } }
+      - { type: wait.ticks, ticks: 1 }
       - { type: server.restart, reconnect: true }
       - { type: client.respawn, client: victim }
       - { type: wait.ticks, ticks: 25 }

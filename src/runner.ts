@@ -358,8 +358,33 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       const face = action.face as { x?: number; y?: number; z?: number } | undefined;
       const target = client();
       const pos = await clientBlockPosition(action, target);
-      await target.placeBlock(pos.x, pos.y, pos.z, { x: face?.x ?? 0, y: face?.y ?? 1, z: face?.z ?? 0 });
-      return;
+      const normalizedFace = { x: face?.x ?? 0, y: face?.y ?? 1, z: face?.z ?? 0 };
+      const placed = {
+        x: pos.x + normalizedFace.x,
+        y: pos.y + normalizedFace.y,
+        z: pos.z + normalizedFace.z,
+      };
+      const state = await target.state();
+      const dimension = String(getJsonPath(state, "dimension"));
+      const path = `/v1/world/block?dimension=${encodeURIComponent(dimension)}&x=${placed.x}&y=${placed.y}&z=${placed.z}`;
+      const before = await context.bridge.request("GET", path) as Record<string, JsonValue>;
+      let observed = before;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await target.placeBlock(pos.x, pos.y, pos.z, normalizedFace);
+        const started = Date.now();
+        while (Date.now() - started < 2_000) {
+          await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+          observed = await context.bridge.request("GET", path) as Record<string, JsonValue>;
+          if (observed.state !== before.state) {
+            evidence[`placement:${string("client")}`] = { attempts: attempt, before, after: observed };
+            return;
+          }
+        }
+      }
+      throw new HarnessError(
+        "BLOCK_PLACEMENT_TIMEOUT",
+        `${string("client")} placement at ${placed.x},${placed.y},${placed.z} was not acknowledged; state remained ${String(observed.state)}`,
+      );
     }
     case "client.attack": await client().attack(string("target")); return;
     case "client.respawn": await client().respawn(); return;
