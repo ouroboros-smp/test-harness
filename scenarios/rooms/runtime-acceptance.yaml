@@ -46,6 +46,8 @@ steps:
       - { type: console.command, command: "give RoomsBuilder minecraft:oak_door 1" }
       - { type: wait.duration, seconds: 1 }
       - { type: snapshot.capture, name: builder-door-ready, client: builder }
+      - { type: client.select_hotbar, client: builder, slot: 0 }
+      - { type: wait.duration, seconds: 1 }
       - { type: client.look, client: builder, yaw: 0, pitch: 0 }
       - { type: client.place_block, client: builder, relative: true, x: 0, y: -1, z: 3 }
       - { type: wait.duration, seconds: 15 }

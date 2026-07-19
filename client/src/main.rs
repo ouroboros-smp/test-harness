@@ -2,13 +2,16 @@ use std::io::{self, Write};
 
 use azalea::{
     BlockPos, Client, Event, SprintDirection, WalkDirection,
-    core::game_type::GameMode,
+    core::{direction::Direction, game_type::GameMode, position::Vec3},
     entity::inventory::Inventory,
+    interact::BlockStatePredictionHandler,
     inventory::ItemStack,
     prelude::Account,
     protocol::packets::{
         PROTOCOL_VERSION,
         game::s_client_command::{Action as ClientCommandAction, ServerboundClientCommand},
+        game::s_interact::InteractionHand,
+        game::s_use_item_on::{BlockHit, ServerboundUseItemOn},
     },
 };
 use eyre::{Result, WrapErr, bail, eyre};
@@ -207,8 +210,12 @@ fn execute(client: &Client, request: Request) -> Result<(Value, bool)> {
             )?;
             Value::Null
         }
-        "use_block" | "place_block" => {
+        "use_block" => {
             client.block_interact(block_position(&data)?);
+            Value::Null
+        }
+        "place_block" => {
+            place_block(client, &data)?;
             Value::Null
         }
         "break_block" => {
@@ -362,6 +369,53 @@ fn block_position(data: &Value) -> Result<BlockPos> {
     ))
 }
 
+fn place_block(client: &Client, data: &Value) -> Result<()> {
+    let block_pos = block_position(data)?;
+    let direction = block_face(data)?;
+    let normal = direction.normal();
+    let location = Vec3 {
+        x: f64::from(block_pos.x) + 0.5 + f64::from(normal.x) * 0.5,
+        y: f64::from(block_pos.y) + 0.5 + f64::from(normal.y) * 0.5,
+        z: f64::from(block_pos.z) + 0.5 + f64::from(normal.z) * 0.5,
+    };
+    let seq = {
+        let mut ecs = client.ecs.write();
+        ecs.get_mut::<BlockStatePredictionHandler>(client.entity)
+            .ok_or_else(|| eyre!("client block prediction state is unavailable"))?
+            .start_predicting()
+    };
+    client.write_packet(ServerboundUseItemOn {
+        hand: InteractionHand::MainHand,
+        block_hit: BlockHit {
+            block_pos,
+            direction,
+            location,
+            inside: false,
+            world_border: false,
+        },
+        seq,
+    });
+    Ok(())
+}
+
+fn block_face(data: &Value) -> Result<Direction> {
+    let face = data.get("face");
+    let component = |name: &str| {
+        face.and_then(|value| value.get(name))
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    };
+    match (component("x"), component("y"), component("z")) {
+        (0, -1, 0) => Ok(Direction::Down),
+        (0, 1, 0) => Ok(Direction::Up),
+        (0, 0, -1) => Ok(Direction::North),
+        (0, 0, 1) => Ok(Direction::South),
+        (-1, 0, 0) => Ok(Direction::West),
+        (1, 0, 0) => Ok(Direction::East),
+        other => bail!("block face must be one unit axis vector, got {other:?}"),
+    }
+}
+
 fn argument(arguments: &[String], name: &str) -> Option<String> {
     arguments
         .windows(2)
@@ -417,5 +471,18 @@ mod tests {
         assert_eq!(MINECRAFT_VERSION, "26.2");
         assert_eq!(PROTOCOL_VERSION, 776);
         assert_eq!(AZALEA_REVISION.len(), 40);
+    }
+
+    #[test]
+    fn parses_block_faces_for_surface_placement() {
+        assert_eq!(
+            block_face(&json!({ "face": { "x": 0, "y": 1, "z": 0 } })).unwrap(),
+            Direction::Up
+        );
+        assert_eq!(
+            block_face(&json!({ "face": { "x": -1, "y": 0, "z": 0 } })).unwrap(),
+            Direction::West
+        );
+        assert!(block_face(&json!({ "face": { "x": 1, "y": 1, "z": 0 } })).is_err());
     }
 }
