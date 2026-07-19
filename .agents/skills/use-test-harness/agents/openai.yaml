@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ouroboros Test Harness"
+  short_description: "Operate the Ouroboros Fabric integration harness"
+  default_prompt: "Use $use-test-harness to plan and verify a release-level Fabric scenario."
