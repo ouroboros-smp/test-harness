@@ -2,7 +2,7 @@ schemaVersion: 1
 id: rooms/runtime-acceptance
 title: Rooms Fabric discovery, diagnostics, persistence, and lifecycle acceptance
 description: Builds a real enclosed room around a protocol client, places its door through a player packet, and verifies durable discovery through the public operator and SQLite boundaries.
-issues: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+issues: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 32, 33]
 tags: [fabric, minecraft-26.2, rooms, discovery, vanilla-client, sqlite, restart]
 artifacts:
   consumer: { required: true, description: Packaged Rooms Fabric server jar }
@@ -37,10 +37,12 @@ steps:
     actions:
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:stone" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-3 ~3 ~-3 ~3 ~3 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-2 ~ ~-2 ~2 ~2 ~2 minecraft:air" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-3 ~ ~-3 ~-3 ~2 ~3 minecraft:stone" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~3 ~ ~-3 ~3 ~2 ~3 minecraft:stone" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-2 ~ ~-3 ~2 ~2 ~-3 minecraft:stone" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-2 ~ ~3 ~2 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run fill ~-1 ~ ~4 ~1 ~2 ~5 minecraft:air" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run setblock ~ ~ ~3 minecraft:air" } }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at RoomsBuilder run setblock ~ ~1 ~3 minecraft:air" } }
       - { type: console.command, command: "give RoomsBuilder minecraft:oak_door 1" }

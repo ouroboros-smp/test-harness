@@ -2,7 +2,7 @@ schemaVersion: 1
 id: patrol/runtime-acceptance
 title: Patrol Fabric vanilla-client commands, enforcer lifecycle, reload, and restart
 description: Exercises the packaged server jar through its supported player/admin surface and structured entity evidence.
-issues: [25]
+issues: [25, 33]
 tags: [fabric, minecraft-26.2, server, vanilla-client, entities, restart]
 artifacts:
   patrol: { required: true, description: Packaged Patrol Fabric server jar }
@@ -46,6 +46,9 @@ steps:
     name: Spawn the real Fabric enforcer squad and drain it cleanly
     timeoutSeconds: 90
     actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolOfficer run fill ~-24 ~ ~-24 ~24 ~5 ~24 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolOfficer run fill ~-24 ~-1 ~-24 ~24 ~-1 ~24 minecraft:stone" } }
+      - { type: wait.ticks, ticks: 5 }
       - { type: client.command, client: officer, command: "patrol dev spawn" }
       - { type: wait.ticks, ticks: 80 }
     assertions:
