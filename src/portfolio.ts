@@ -84,6 +84,9 @@ export function validatePortfolioManifest(value: unknown): string[] {
       if (!Array.isArray(command.command) || command.command.length === 0 || command.command.some((part) => typeof part !== "string")) {
         failures.push(`targets[${index}].build[${commandIndex}].command must be a non-empty string array`);
       }
+      if (command.base !== undefined && command.base !== "repository" && command.base !== "harness") {
+        failures.push(`targets[${index}].build[${commandIndex}].base must be repository or harness`);
+      }
       if (command.java !== undefined && (!Number.isInteger(command.java) || Number(command.java) < 1)) failures.push(`targets[${index}].build[${commandIndex}].java must be a positive integer`);
       if (command.timeoutMinutes !== undefined && (typeof command.timeoutMinutes !== "number" || command.timeoutMinutes <= 0)) failures.push(`targets[${index}].build[${commandIndex}].timeoutMinutes must be positive`);
       if (command.environment !== undefined && !isPrimitiveRecord(command.environment, false)) failures.push(`targets[${index}].build[${commandIndex}].environment must contain string, number, or boolean values`);
@@ -160,7 +163,8 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
     for (const [index, command] of target.build.entries()) {
       if (buildFailed) break;
       const log = join(targetDirectory, `build-${String(index + 1).padStart(2, "0")}-${safeSegment(command.name)}.log`);
-      const result = await runBuild(command, repository, log, options.verbose);
+      const workingDirectory = command.base === "harness" ? repositoryRoot() : repository;
+      const result = await runBuild(command, workingDirectory, log, options.verbose);
       builds.push(result);
       if (result.status === "failed") buildFailed = true;
     }
@@ -253,11 +257,24 @@ async function runBuild(command: PortfolioCommandSpec, cwd: string, log: string,
   const batch = process.platform === "win32" && /\.(?:bat|cmd)$/i.test(program!);
   const executable = batch ? (process.env.ComSpec ?? "cmd.exe") : program!;
   const executableArgs = batch ? ["/d", "/s", "/c", program!, ...args] : args;
-  const javaExecutable = command.java ? process.env[`OURO_HARNESS_JAVA_${command.java}`] : undefined;
-  const javaHome = javaExecutable ? dirname(dirname(javaExecutable)) : undefined;
   let combined = "";
   let failure: string | undefined;
   try {
+    const javaVariable = command.java ? `OURO_HARNESS_JAVA_${command.java}` : undefined;
+    const javaExecutable = javaVariable ? process.env[javaVariable] : undefined;
+    if (javaVariable && !javaExecutable) {
+      throw new HarnessError(
+        "MISSING_PORTFOLIO_JAVA",
+        `${javaVariable} must point to the Java ${command.java} executable; portfolio builds never fall back to ambient Java`,
+      );
+    }
+    if (javaExecutable && !isAbsolute(javaExecutable)) {
+      throw new HarnessError(
+        "INVALID_PORTFOLIO_JAVA",
+        `${javaVariable} must be an absolute path to the Java ${command.java} executable: ${javaExecutable}`,
+      );
+    }
+    const javaHome = javaExecutable ? dirname(dirname(javaExecutable)) : undefined;
     await new Promise<void>((resolveCommand, rejectCommand) => {
       const child = execFile(executable, executableArgs, {
         cwd,

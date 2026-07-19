@@ -140,6 +140,7 @@ export interface CommandResult {
 export interface PortfolioCommandSpec {
   name: string;
   command: string[];
+  base?: "repository" | "harness";
   java?: number;
   environment?: Record<string, string | number | boolean>;
   timeoutMinutes?: number;

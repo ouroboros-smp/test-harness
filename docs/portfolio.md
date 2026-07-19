@@ -9,6 +9,7 @@ Each target declares:
 - a stable id, title, and checkout path;
 - the exact `testedVersion` used by production drift checks;
 - one or more clean build/test commands with an explicit Java major;
+- a command base when a consumer build must invoke a harness-owned adapter;
 - the exact packaged jars supplied to scenario artifact names;
 - optional scenario variables, such as a real-client GameTest checkout; and
 - every maintained scenario owned by that target.
@@ -36,9 +37,15 @@ npm run harness -- portfolio \
 ```
 
 Set `OURO_HARNESS_JAVA_25` and `OURO_HARNESS_JAVA_21` to the corresponding
-`java` executables when the default Java installation does not cover both
-Minecraft lines. The runner derives `JAVA_HOME` for each build from those
-values. Downloads share the normal harness cache.
+absolute `java` executable paths before every mixed-Java portfolio run. The
+runner derives `JAVA_HOME` for each build from those values and fails before a
+build rather than silently inheriting an ambient Java. Downloads share the
+normal harness cache.
+
+Build commands run from the target repository by default. A command with
+`base: harness` runs from the harness root; Coffer uses this after its Fabric
+server and core jars exist so the harness-only adapter always compiles against
+the same isolated checkout that the scenario exercises.
 
 ## Add another Fabric mod
 
