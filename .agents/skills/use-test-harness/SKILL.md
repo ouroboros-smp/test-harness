@@ -1,6 +1,6 @@
 ---
 name: use-test-harness
-description: Operate and extend the Ouroboros SMP Fabric release-level test harness. Use when an agent needs to run or diagnose harness scenarios, verify packaged mod jars with real clients and a dedicated server, author or update scenario YAML, add a portfolio target or harness-only adapter, integrate the composite GitHub Action, inspect evidence reports, or choose and execute the correct test-harness verification suite.
+description: Operate and extend the Ouroboros SMP Fabric release-level test harness. Use when an agent needs to run or diagnose harness scenarios, verify packaged mod jars with real clients and a dedicated server, author or update scenario YAML, add a portfolio target or harness-only adapter, audit the production mod manifest or run the full-stack interoperability gate, integrate the composite GitHub Action, inspect evidence reports, or choose and execute the correct test-harness verification suite.
 ---
 
 # Use the Ouroboros Fabric Test Harness
@@ -13,6 +13,7 @@ Exercise packaged Fabric mods at real process and network boundaries. Preserve t
 2. Read the root `README.md`, then load only the canonical files required by the task:
    - Scenario work: `schemas/scenario.schema.json`, `docs/scenarios.md`, and the closest existing file under `scenarios/`.
    - Portfolio work: `config/portfolio.yaml` and `docs/portfolio.md`.
+   - Production-stack work: `config/production-manifest.yaml` and `docs/production-manifest.md`.
    - Runtime or bridge work: `docs/architecture.md` and the relevant implementation under `src/`, `bridge/`, `client/`, or `adapters/`.
    - Report diagnosis: `schemas/report.schema.json` and the generated `summary.md`, `report.json`, logs, and event files.
    - Consumer CI integration: `action.yml` and its pinned usage in the consumer repository.
@@ -58,6 +59,14 @@ npm run harness -- run <scenario-id> --artifact <name>=<packaged-jar> --dry-run 
 
 9. Run the live scenario with the same resolved inputs, then inspect all four report views and retained logs.
 
+## Audit or run the production stack
+
+1. Treat `config/production-manifest.yaml` as the exact deploy-to-test inventory and `config/portfolio.yaml` as the executable coverage inventory. Keep first-party production versions aligned with their `testedVersion` values.
+2. Run `npm run validate` for structure, then use `node dist/cli.js manifest-check` for catalog/version drift. Add `--mods-directory <path>` to audit the exact jar directory and `--strict` to require every third-party version pin.
+3. Expect the checked-in manifest audit to report documented gaps until they are resolved. Do not weaken, allowlist, or omit drift to obtain a green result.
+4. Run `node dist/cli.js interop --mods-directory <path> --output <unique-output>` only against the intended production jar directory. The command must reject incomplete pins, missing or undeclared jars, ambiguous patterns, and portfolio/version drift before launching.
+5. Interpret a passing interop run narrowly: it proves full-stack packaging, Loader/mixin compatibility, exact loaded mod ids and versions, real-client join, restart, reconnect, and global error checks. It does not replace focused behavioral interaction scenarios.
+
 ## Diagnose a failed run
 
 1. Open `summary.md` for orientation and `report.json` for the automation contract.
@@ -75,4 +84,4 @@ npm run harness -- run <scenario-id> --artifact <name>=<packaged-jar> --dry-run 
 
 ## Communicate results
 
-Name the scenario or portfolio target, pins, packaged artifacts, exact verification tier, and evidence path. If verification is incomplete, name the skipped command, reason, and residual risk. Never describe a dry run, schema validation, or unit suite as a live harness pass.
+Name the scenario, portfolio target, or production manifest, pins, packaged artifacts, exact verification tier, and evidence path. If verification is incomplete, name the skipped command, reason, and residual risk. Never describe a dry run, schema validation, manifest audit, or unit suite as a live harness pass.

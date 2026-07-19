@@ -18,6 +18,7 @@ Use this reference to choose commands by intent. Run commands from the harness r
 - Network access on the first download; subsequent downloads use the harness cache.
 - Docker only for targets whose scenarios declare managed services.
 - Packaged consumer and runtime-dependency jars at the exact paths declared by the scenario or portfolio catalog.
+- An exact production `mods` directory only for production-manifest directory audits and full-stack interoperability runs.
 
 Use `npm` scripts instead of invoking platform-specific binaries directly. The harness and portfolio resolve `npm`, Gradle wrapper, executable suffixes, and repository-relative paths per platform.
 
@@ -85,7 +86,19 @@ npm run harness -- portfolio --variable <repositoryVariable>=<checkout-path> --o
 
 Set `OURO_HARNESS_JAVA_25` and `OURO_HARNESS_JAVA_21` to the corresponding Java executables when the default Java installation cannot cover both target lines. Treat any failed or skipped target as an incomplete portfolio even though later targets continue.
 
-When a request says only "full suite," use Tier 4. If required sibling checkouts, Java versions, Docker, or artifacts are unavailable, report the exact prerequisite gap; do not silently downgrade to Tier 3.
+When a request says only "full suite," use Tier 4. If required sibling checkouts, Java versions, Docker, or artifacts are unavailable, report the exact prerequisite gap; do not silently downgrade to Tier 3. A production manifest audit or interoperability run is a separate deploy gate and requires an explicit production inventory or mods directory; do not imply that Tier 4 exercised an unavailable production stack.
+
+### Production deploy gate
+
+Use this only when auditing the deployed inventory or explicitly testing the complete production jar set.
+
+```text
+npm run build
+node dist/cli.js manifest-check --strict --mods-directory <production-mods-directory>
+node dist/cli.js interop --mods-directory <production-mods-directory> --output <unique-output>
+```
+
+The checked-in manifest may intentionally expose known drift and missing coverage. A nonzero audit is an actionable result, not a reason to relax strictness. The interop command audits before launch and proves packaging, loaded mod versions, real-client join, restart, and reconnect; focused portfolio scenarios continue to own behavioral cross-mod assertions.
 
 ## Task-to-contract map
 
@@ -98,6 +111,7 @@ When a request says only "full suite," use Tier 4. If required sibling checkouts
 | Change Rust client packets/actions | Client source, exact protocol pin, affected scenarios | Tier 3 plus affected scenario |
 | Change bridge or adapter | Architecture, bridge tests, adapter scenario | Tier 3 plus affected scenario |
 | Change portfolio target/catalog | Portfolio schema tests, catalog, portfolio guide | `npm test`, `npm run validate`, Tier 4 |
+| Change production manifest | Production manifest guide, portfolio `testedVersion` values, exact mods inventory | `npm test`, `npm run validate`, manifest audit; interop when the production directory is available |
 | Integrate a consumer release gate | `action.yml`, consumer build output, scenario artifacts | Consumer tests plus pinned live harness run |
 | Diagnose a report | Report schema and retained evidence | Reproduce at the narrowest live tier |
 
