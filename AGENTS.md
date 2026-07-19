@@ -1,6 +1,7 @@
 # Repository agent guidance
 
-Use `.agents/skills/use-test-harness/SKILL.md` for tasks that run, extend,
-integrate, or diagnose the Ouroboros Fabric test harness. The skill uses the
-portable Agent Skills format so different coding agents receive the same
-harness boundaries, workflows, verification tiers, and evidence rules.
+Read `.agents/skills/use-test-harness/SKILL.md` before running, extending,
+integrating, or diagnosing the Ouroboros Fabric test harness. Follow that path
+directly even when the active agent does not auto-discover repository skills;
+the directory uses the portable Agent Skills format and keeps one canonical
+set of harness boundaries, workflows, verification tiers, and evidence rules.
