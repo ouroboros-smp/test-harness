@@ -7,7 +7,7 @@ import { validateScenario } from "./manifest.js";
 import { loadPortfolioManifest } from "./portfolio.js";
 import {
   auditProductionManifest,
-  buildFullManifestInteropScenario,
+  buildFullManifestCompatibilityScenario,
   loadProductionManifest,
   resolveProductionArtifacts,
   validateProductionManifest,
@@ -31,7 +31,10 @@ test("production manifest classifies the complete named stack and exposes known 
   for (const id of ["ouroboros-relay", "ouroveil", "secret-spectator"]) {
     assert.ok(audit.findings.some((finding) => finding.code === "UNCATALOGUED_FIRST_PARTY" && finding.mod === id));
   }
+  assert.ok(!audit.findings.some((finding) => finding.code === "UNBOUND_ARTIFACT_VERSION"));
   assert.ok(audit.findings.some((finding) => finding.code === "UNPINNED_VERSION" && finding.severity === "warning"));
+  const releaseAudit = await auditProductionManifest(manifest, portfolio, { strictThirdPartyPins: true });
+  assert.ok(releaseAudit.findings.some((finding) => finding.code === "UNPINNED_VERSION" && finding.severity === "error"));
 });
 
 test("production manifest validation rejects ambiguous identity and unsafe artifact locators", () => {
@@ -76,7 +79,7 @@ test("production manifest validation rejects ambiguous identity and unsafe artif
   assert.ok(failures.some((failure) => failure.includes("unexpected is not allowed")));
 });
 
-test("exact and patterned jars resolve into a schema-valid full-manifest interop scenario", async () => {
+test("exact and patterned jars resolve into a schema-valid full-manifest compatibility scenario", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ouro-production-manifest-test-"));
   try {
     await writeFile(join(directory, "owned-1.0.0.jar"), "owned", "utf8");
@@ -142,12 +145,25 @@ test("exact and patterned jars resolve into a schema-valid full-manifest interop
 
     const audit = await auditProductionManifest(manifest, portfolio, { modsDirectory: directory, strictThirdPartyPins: true });
     assert.equal(audit.ok, true, JSON.stringify(audit.findings));
+
+    const nearCollisionPortfolio = structuredClone(portfolio);
+    nearCollisionPortfolio.targets[0]!.artifacts!.consumer!.path = "owned-11.0.0.jar";
+    const nearCollisionAudit = await auditProductionManifest(manifest, nearCollisionPortfolio);
+    assert.ok(nearCollisionAudit.findings.some((finding) => finding.code === "TESTED_ARTIFACT_VERSION_MISMATCH"));
+
+    const unboundManifest = structuredClone(manifest);
+    unboundManifest.mods.find((mod) => mod.id === "dependency")!.filePattern = "dependency-*.jar";
+    const unboundAudit = await auditProductionManifest(unboundManifest, portfolio);
+    assert.ok(unboundAudit.findings.some((finding) => finding.code === "UNBOUND_ARTIFACT_VERSION"));
+
     const artifacts = await resolveProductionArtifacts(manifest, directory);
     assert.equal(artifacts.owned, join(directory, "owned-1.0.0.jar"));
     assert.equal(artifacts.dependency, join(directory, "dependency-2.0.0-build7.jar"));
 
-    const scenario = buildFullManifestInteropScenario(manifest);
+    const scenario = buildFullManifestCompatibilityScenario(manifest);
     assert.deepEqual(validateScenario(scenario), []);
+    assert.equal(scenario.id, "portfolio/full-manifest-compatibility");
+    assert.deepEqual(scenario.issues, [39]);
     assert.deepEqual(Object.keys(scenario.artifacts ?? {}).sort(), ["dependency", "fabric-api", "owned"]);
     assert.ok(scenario.steps[0]?.assertions?.some((entry) => entry.type === "value.json" && entry.jsonPath === "owned.version"));
     assert.ok(scenario.steps.some((step) => step.actions?.some((action) => action.type === "server.restart")));

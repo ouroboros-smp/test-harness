@@ -7,7 +7,7 @@ import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, resolveScena
 import { loadPortfolioManifest, runPortfolio } from "./portfolio.js";
 import {
   auditProductionManifest,
-  buildFullManifestInteropScenario,
+  buildFullManifestCompatibilityScenario,
   formatProductionManifestAudit,
   loadProductionManifest,
   resolveProductionArtifacts,
@@ -80,11 +80,11 @@ Production manifest options:
   --manifest PATH         Production manifest (default: config/production-manifest.yaml)
   --portfolio PATH        Portfolio catalog used for drift checks
   --mods-directory PATH   Exact production jar directory to audit or run
-  --strict                Treat missing third-party version pins as errors
+  --strict                Treat missing third-party pins as errors in manifest-check
 
 Interop also accepts --output, --cache, --dry-run, --keep-run-directory,
-and --verbose. It refuses to launch while first-party catalog/version drift
-or production-directory inventory errors remain.
+and --verbose. It always requires third-party pins and refuses to launch while
+catalog/version drift or production-directory inventory errors remain.
 `);
 }
 
@@ -223,11 +223,11 @@ async function interop(args: ParsedArgs): Promise<void> {
   const portfolioManifest = await loadPortfolioManifest(lastFlag(args, "portfolio"));
   const audit = await auditProductionManifest(manifest, portfolioManifest, {
     modsDirectory,
-    strictThirdPartyPins: args.flags.has("strict"),
+    strictThirdPartyPins: true,
   });
   if (!audit.ok) throw new HarnessError("PRODUCTION_MANIFEST_DRIFT", formatProductionManifestAudit(audit), audit);
 
-  const scenario = buildFullManifestInteropScenario(manifest);
+  const scenario = buildFullManifestCompatibilityScenario(manifest);
   const output = lastFlag(args, "output");
   const cache = lastFlag(args, "cache");
   const report = await runScenario(scenario, await loadPins(), {

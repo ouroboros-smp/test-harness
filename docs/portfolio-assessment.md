@@ -77,12 +77,15 @@ Throughout this document:
 
 ## Implementation delivered with this assessment
 
-This branch turns the first two `test-harness` recommendations below into an
-executable foundation. It adds a versioned production manifest with 44 entries
-(42 enabled), a deterministic `manifest-check` drift and mods-directory audit,
-and a generated full-stack Fabric interoperability scenario. The live runtime
+This branch turns the deployment-drift recommendation and the foundation of the
+full-stack recommendation below into executable gates. It adds a versioned
+production manifest with 44 entries (42 enabled), a deterministic
+`manifest-check` drift and mods-directory audit, and a generated full-stack
+Fabric compatibility scenario. The live runtime
 path now inventories loaded mod ids and versions through `/v1/mods`, joins a
 real protocol client, restarts the server, and verifies the inventory again.
+Behavioral interoperability remains tracked by
+[`test-harness#39`](https://github.com/ouroboros-smp/test-harness/issues/39).
 
 The checked-in audit intentionally remains red until the known production gaps
 are resolved: Mehen's deployed/tested versions differ; Relay, OuroVeil, and
@@ -960,9 +963,11 @@ implement or test them.
 
 Each issue should retain the supplied plan's acceptance rule: the new test must
 be seen failing against a deliberate mutation or reverted fix before it counts
-as coverage. The first two `test-harness` rows are substantially implemented in
-this branch, but remain open until their known audit blockers are resolved and a
-complete production mod directory passes the generated live scenario.
+as coverage. The deployment-drift row is substantially implemented in this
+branch. The behavioral interop row is filed as
+[`test-harness#39`](https://github.com/ouroboros-smp/test-harness/issues/39) and
+remains open until its domain assertions and a complete production mod-directory
+run are green.
 
 | Repository | Proposed issue title | Layer | Minimum acceptance criteria |
 |---|---|---|---|

@@ -60,7 +60,7 @@ build commands, Java versions, packaged artifacts, and scenarios. Override a
 checkout without editing the catalog, for example
 `--variable watershedRepository=/path/to/checkout`.
 
-## Production manifest and interoperability
+## Production manifest and compatibility gate
 
 `config/production-manifest.yaml` records the enabled first-party and
 third-party Fabric stack, exact known versions, obligation buckets, and
@@ -75,13 +75,18 @@ node dist/cli.js manifest-check --mods-directory /path/to/production/mods
 
 The directory form also rejects missing, ambiguous, disabled-but-present, and
 undeclared jars. Once the audit is green, run the generated full-stack boot,
-real-client join, loaded-mod/version inventory, and restart scenario:
+real-client join, loaded-mod/version inventory, and restart compatibility gate:
 
 ```bash
 node dist/cli.js interop \
   --mods-directory /path/to/production/mods \
   --output artifacts/production-interop
 ```
+
+The release command always requires exact third-party version pins, even when a
+non-strict catalog audit would report them as warnings. It proves packaging,
+loader/mixin compatibility, join, and restart. Behavioral cross-mod assertions
+remain tracked in [issue #39](https://github.com/ouroboros-smp/test-harness/issues/39).
 
 The checked-in manifest deliberately reports the known July 18 gaps: Mehen is
 deployed ahead of its tested version, and Ouroboros Relay, OuroVeil, and Secret

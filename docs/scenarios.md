@@ -91,13 +91,14 @@ address array indices, for example `inventory.38.item`.
 7. Use `controlBridge: false` for a client-only mod or a server mod whose
    lifecycle must be observed without the harness bridge.
 
-## Generated full-manifest scenario
+## Generated full-manifest compatibility scenario
 
 `ouro-harness interop --mods-directory PATH` generates
-`portfolio/full-manifest-interop` from `config/production-manifest.yaml`.
+`portfolio/full-manifest-compatibility` from `config/production-manifest.yaml`.
 Every enabled entry becomes a required artifact. The scenario boots the full
 stack, joins a real protocol client, asserts each Fabric Loader mod id and
 pinned version through `/v1/mods`, restarts, and repeats the assertions. Keep
-domain-specific interop behavior in focused scenarios; this generated gate is
+domain-specific interop behavior in focused scenarios and track their
+composition through issue #39; this generated gate is
 the broad packaging, mixin, dependency-resolution, join, and restart safety
 net.

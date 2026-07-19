@@ -167,6 +167,13 @@ export async function auditProductionManifest(
     }
     if (!mod.file && !mod.filePattern) {
       findings.push(finding("error", "MISSING_ARTIFACT_LOCATOR", mod, `${mod.title} has no production jar filename or pattern`));
+    } else if (mod.version && !containsVersionToken(mod.file ?? mod.filePattern!, mod.version)) {
+      findings.push(finding(
+        "error",
+        "UNBOUND_ARTIFACT_VERSION",
+        mod,
+        `${mod.title} version ${mod.version} is not an exact token in its artifact locator`,
+      ));
     }
     if (mod.owner !== "first-party") continue;
     if (!mod.repository) findings.push(finding("error", "MISSING_REPOSITORY", mod, `${mod.title} has no source repository`));
@@ -182,13 +189,15 @@ export async function auditProductionManifest(
     if (!target.testedVersion) {
       findings.push(finding("error", "UNPINNED_TEST_VERSION", mod, `${target.title} has no testedVersion in the portfolio catalog`));
     } else {
-      const artifactPaths = Object.values(target.artifacts ?? {}).map((artifact) => artifact.path);
-      if (!artifactPaths.some((path) => path.includes(target.testedVersion!))) {
+      const artifactPaths = Object.values(target.artifacts ?? {})
+        .filter((artifact) => artifact.base !== "harness")
+        .map((artifact) => artifact.path);
+      if (!artifactPaths.some((path) => containsVersionToken(basename(path), target.testedVersion!))) {
         findings.push(finding(
           "error",
           "TESTED_ARTIFACT_VERSION_MISMATCH",
           mod,
-          `${target.title} testedVersion ${target.testedVersion} is not present in any target artifact path`,
+          `${target.title} testedVersion ${target.testedVersion} is not an exact token in any repository artifact basename`,
         ));
       }
       if (mod.version && target.testedVersion !== mod.version) {
@@ -253,8 +262,8 @@ export async function resolveProductionArtifacts(
   return artifacts;
 }
 
-/** Builds the full-stack boot, load-inventory, client-join, and restart scenario. */
-export function buildFullManifestInteropScenario(manifest: ProductionManifest): Scenario {
+/** Builds the full-stack boot, load-inventory, client-join, and restart compatibility scenario. */
+export function buildFullManifestCompatibilityScenario(manifest: ProductionManifest): Scenario {
   const enabled = manifest.mods.filter((mod) => mod.enabled);
   const artifacts: Record<string, ArtifactSpec> = Object.fromEntries(enabled.map((mod) => [
     mod.id,
@@ -263,11 +272,11 @@ export function buildFullManifestInteropScenario(manifest: ProductionManifest): 
   const assertions = modInventoryAssertions(enabled);
   return {
     schemaVersion: 1,
-    id: "portfolio/full-manifest-interop",
-    title: `${manifest.title} full-manifest interoperability`,
-    description: "Boots the complete production mod set, verifies Fabric Loader IDs and versions, joins a real protocol client, and repeats the checks after restart.",
-    issues: [22],
-    tags: ["fabric", `minecraft-${manifest.minecraft}`, "production-manifest", "interop", "restart"],
+    id: "portfolio/full-manifest-compatibility",
+    title: `${manifest.title} full-manifest compatibility`,
+    description: "Boots the complete production mod set, verifies Fabric Loader IDs and versions, joins a real protocol client, and repeats the checks after restart. Behavioral interoperability remains tracked by issue #39.",
+    issues: [39],
+    tags: ["fabric", `minecraft-${manifest.minecraft}`, "production-manifest", "compatibility", "restart"],
     pins: { minecraft: manifest.minecraft, loader: manifest.loader },
     artifacts,
     clients: [{ name: "smoke", username: "InteropSmoke" }],
@@ -381,6 +390,10 @@ function matchingFiles(mod: ProductionModSpec, files: string[]): string[] {
   if (!mod.filePattern) return [];
   const pattern = new RegExp(`^${escapeRegex(mod.filePattern).replaceAll("\\*", ".*")}$`, "i");
   return files.filter((file) => pattern.test(file));
+}
+
+function containsVersionToken(value: string, version: string): boolean {
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escapeRegex(version)}(?=$|[^A-Za-z0-9])`, "i").test(value);
 }
 
 async function jarFiles(directory: string): Promise<string[]> {
