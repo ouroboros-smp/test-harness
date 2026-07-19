@@ -154,6 +154,7 @@ export interface PortfolioTargetSpec {
   id: string;
   title: string;
   repository: string;
+  testedVersion?: string;
   build: PortfolioCommandSpec[];
   artifacts?: Record<string, PortfolioArtifactSpec>;
   variables?: Record<string, JsonPrimitive>;
@@ -208,4 +209,59 @@ export interface PortfolioReport {
   durationMs: number;
   targets: PortfolioTargetResult[];
   artifacts: Record<string, string>;
+}
+
+export type ProductionModOwner = "first-party" | "third-party";
+
+export type ProductionModBucket =
+  | "first-party"
+  | "critical-dependency"
+  | "gameplay"
+  | "performance"
+  | "protocol-infrastructure"
+  | "operational";
+
+export interface ProductionModSpec {
+  id: string;
+  title: string;
+  modId: string;
+  owner: ProductionModOwner;
+  bucket: ProductionModBucket;
+  enabled: boolean;
+  version?: string;
+  file?: string;
+  filePattern?: string;
+  repository?: string;
+  portfolioTarget?: string;
+  obligations: string[];
+  touchpoints?: string[];
+}
+
+export interface ProductionManifest {
+  schemaVersion: 1;
+  title: string;
+  platform: "fabric";
+  minecraft: string;
+  loader: string;
+  environmentDeltas?: string[];
+  mods: ProductionModSpec[];
+}
+
+export interface ProductionManifestFinding {
+  severity: "error" | "warning";
+  code: string;
+  mod?: string;
+  message: string;
+}
+
+export interface ProductionManifestAudit {
+  ok: boolean;
+  manifest: string;
+  platform: string;
+  minecraft: string;
+  loader: string;
+  enabledMods: number;
+  firstPartyMods: number;
+  thirdPartyMods: number;
+  findings: ProductionManifestFinding[];
 }

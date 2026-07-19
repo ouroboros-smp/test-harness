@@ -26,6 +26,10 @@ steps:
         path: /v1/players
         jsonPath: "0.name"
         expected: HarnessAlice
+      - type: bridge.json
+        path: /v1/mods
+        jsonPath: ouro_harness_bridge.version
+        expected: 1.0.0
       - type: client.state
         client: alice
         path: gameMode

@@ -30,6 +30,8 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.util.TriState;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.Identifier;
@@ -115,6 +117,7 @@ public final class HarnessBridgeMod implements ModInitializer {
             JsonElement response;
             if (method.equals("GET") && path.equals("/v1/health")) response = health();
             else if (method.equals("GET") && path.equals("/v1/metrics")) response = metrics();
+            else if (method.equals("GET") && path.equals("/v1/mods")) response = mods();
             else if (method.equals("GET") && path.equals("/v1/players")) response = onServer(this::players);
             else if (method.equals("GET") && path.equals("/v1/player/state")) response = onServer(() -> playerState(required(query, "name")));
             else if (method.equals("PUT") && path.equals("/v1/player/inventory")) response = onServer(() -> setInventory(body));
@@ -156,6 +159,18 @@ public final class HarnessBridgeMod implements ModInitializer {
     private JsonObject metrics() {
         MinecraftServer server = requireServer();
         return metrics.snapshot(server.getPlayerList().getPlayerCount());
+    }
+
+    private JsonObject mods() {
+        JsonObject result = new JsonObject();
+        for (ModContainer container : FabricLoader.getInstance().getAllMods()) {
+            String id = container.getMetadata().getId();
+            result.add(id, object(
+                    "id", id,
+                    "name", container.getMetadata().getName(),
+                    "version", container.getMetadata().getVersion().getFriendlyString()));
+        }
+        return result;
     }
 
     private JsonArray players() {
