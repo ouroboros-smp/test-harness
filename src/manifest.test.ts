@@ -30,6 +30,14 @@ test("Fabric runtime pins are internally consistent", async () => {
   });
 });
 
+test("Mehen waits for the final MariaDB server instead of its temporary initializer", async () => {
+  const entry = (await loadAllScenarios()).find(({ scenario }) => scenario.id === "mehen/governance-acceptance");
+  const mariadb = entry?.scenario.steps
+    .flatMap((step) => step.actions ?? [])
+    .find((action) => action.type === "service.start" && action.name === "mariadb");
+  assert.equal(mariadb?.waitForLog, "port: 3306");
+});
+
 test("composite action exposes the stable consumer contract", async () => {
   const action = parse(await readFile(join(repositoryRoot(), "action.yml"), "utf8")) as Record<string, unknown>;
   const inputs = action.inputs as Record<string, unknown>;
