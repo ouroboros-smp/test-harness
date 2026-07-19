@@ -87,7 +87,7 @@ The bridge:
 - schedules Minecraft reads/mutations through `MinecraftServer.execute`;
 - provides health, tick/MSPT, players, inventory/components, item entities,
   block-entity SNBT, commands, damage, block fixtures, permissions, tick waits,
-  and adapter endpoints;
+  the exact Fabric Loader mod/version inventory, and adapter endpoints;
 - emits timestamped NDJSON lifecycle/control events;
 - includes a test-only Fabric Permissions API provider with allow/deny/default;
 - exposes `HarnessAdapter` so a harness-only consumer adapter can add structured
@@ -123,6 +123,19 @@ production code.
 The scenario schema and report schema are versioned independently from consumer
 mods. New fields remain optional within schema version 1; breaking semantics
 require schema version 2.
+
+## Production manifest gate
+
+The production inventory is a separate versioned contract. It maps exact
+first-party deployment versions to `testedVersion` pins in the executable
+portfolio, classifies third-party obligations, and optionally resolves every
+enabled entry against a concrete mods directory. The interop command will not
+launch while that audit has an error. Its generated scenario then queries the
+bridge's `/v1/mods` endpoint, so a jar merely present on disk cannot masquerade
+as a successfully loaded mod.
+
+The runtime remains Fabric 26.2 only. Folia implementations are migration
+context, not a second launcher profile.
 
 ## Research basis
 

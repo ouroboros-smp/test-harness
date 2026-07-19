@@ -60,6 +60,41 @@ build commands, Java versions, packaged artifacts, and scenarios. Override a
 checkout without editing the catalog, for example
 `--variable watershedRepository=/path/to/checkout`.
 
+## Production manifest and compatibility gate
+
+`config/production-manifest.yaml` records the enabled first-party and
+third-party Fabric stack, exact known versions, obligation buckets, and
+cross-mod touchpoints. Audit deployment-to-test drift without starting a
+server:
+
+```bash
+npm run build
+node dist/cli.js manifest-check --json
+node dist/cli.js manifest-check --mods-directory /path/to/production/mods
+```
+
+The directory form also rejects missing, ambiguous, disabled-but-present, and
+undeclared jars. Once the audit is green, run the generated full-stack boot,
+real-client join, loaded-mod/version inventory, and restart compatibility gate:
+
+```bash
+node dist/cli.js interop \
+  --mods-directory /path/to/production/mods \
+  --output artifacts/production-interop
+```
+
+The release command always requires exact third-party version pins, even when a
+non-strict catalog audit would report them as warnings. It proves packaging,
+loader/mixin compatibility, join, and restart. Behavioral cross-mod assertions
+remain tracked in [issue #39](https://github.com/ouroboros-smp/test-harness/issues/39).
+
+The checked-in manifest deliberately reports the known July 18 gaps: Mehen is
+deployed ahead of its tested version, and Ouroboros Relay, OuroVeil, and Secret
+Spectator do not yet have executable portfolio targets. These failures are the
+pre-deploy work queue, not allowlisted drift. Folia is not a harness runtime;
+legacy Folia-only repositories must migrate to Fabric or remain outside the
+executable portfolio.
+
 ## Reading reports
 
 Every run writes four complementary views to its output directory:
@@ -96,7 +131,9 @@ bearer token, runs Minecraft mutations on the server thread, emits NDJSON
 events, and is never copied into consumer release jars.
 
 See [Architecture](docs/architecture.md), [Scenario Authoring](docs/scenarios.md),
-[Portfolio Catalog](docs/portfolio.md), and [Issue Coverage](docs/issue-coverage.md)
+[Portfolio Catalog](docs/portfolio.md), [Production Manifest](docs/production-manifest.md),
+[Organization Assessment](docs/portfolio-assessment.md), and
+[Issue Coverage](docs/issue-coverage.md)
 for the complete contracts.
 
 ## CI action

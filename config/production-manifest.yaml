@@ -1,0 +1,468 @@
+schemaVersion: 1
+title: Ouroboros SMP production Fabric stack
+platform: fabric
+minecraft: "26.2"
+loader: "0.19.3"
+environmentDeltas:
+  - Production clients connect through FabricProxy-Lite; harness clients connect directly.
+  - ViaFabric and ViaBackwards permit older vanilla protocols; the harness client remains pinned to protocol 776.
+  - External Discord, proxy, voice-chat UDP, and production data services are not reproduced by the baseline boot scenario.
+
+mods:
+  # First-party release artifacts. These exact pins are the deployment-to-portfolio drift contract.
+  - id: coffer
+    title: Coffer
+    modId: coffer
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 1.3.0
+    file: coffer-fabric-server-1.3.0.jar
+    repository: https://github.com/ouroboros-smp/coffer
+    portfolioTarget: coffer
+    obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]
+    touchpoints: [rooms storage durability and container ownership]
+
+  - id: keepgear
+    title: KeepGear
+    modId: keepgear
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 2.0.1
+    file: keepgear-2.0.1-fabric.jar
+    repository: https://github.com/ouroboros-smp/KeepGear
+    portfolioTarget: keepgear
+    obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]
+
+  - id: kinship
+    title: Kinship
+    modId: kinship
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 0.4.0
+    file: kinship-fabric-0.4.0.jar
+    repository: https://github.com/ouroboros-smp/kinship
+    portfolioTarget: kinship
+    obligations: [targeted packaged-jar acceptance, multiplayer concurrency, persistence, soak]
+    touchpoints: [remote backend, settlements and homestead, Discord-linked nation features]
+
+  - id: mehen
+    title: Mehen
+    modId: mehen
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 2.0.0
+    file: mehen-fabric-2.0.0.jar
+    repository: https://github.com/ouroboros-smp/mehen
+    portfolioTarget: mehen
+    obligations: [database-backed acceptance, ban propagation, restart, full-manifest boot]
+    touchpoints: [mehen-proxy, mehen-bot, MariaDB, Redis]
+
+  - id: patrol
+    title: Patrol
+    modId: patrol-fabric
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 1.2.1
+    file: patrol-fabric-1.2.1.jar
+    repository: https://github.com/ouroboros-smp/Patrol
+    portfolioTarget: patrol
+    obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]
+
+  - id: rooms
+    title: Rooms and Structures
+    modId: rooms
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 0.3.1
+    file: rooms-fabric-0.3.1.jar
+    repository: https://github.com/ouroboros-smp/rooms-and-structures
+    portfolioTarget: rooms
+    obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]
+    touchpoints: [coffer container access and storage-room durability, homestead claims]
+
+  - id: wildanimalbalancer
+    title: WildAnimalBalancer
+    modId: wildanimalbalancer
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 2.0.2
+    file: WildAnimalBalancer-fabric-2.0.2.jar
+    repository: https://github.com/ouroboros-smp/WildAnimalBalancer
+    portfolioTarget: wildanimalbalancer
+    obligations: [targeted packaged-jar acceptance, full-manifest boot, soak]
+
+  - id: ouroboros-relay
+    title: Ouroboros Relay
+    modId: ouroboros-relay
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 0.1.0
+    file: ouroboros-relay-0.1.0.jar
+    repository: https://github.com/ouroboros-smp/ouroboros-relay
+    obligations: [fake Discord boundary, outbound and inbound chat, bounded outage and recovery, full-manifest boot]
+    touchpoints: [styled-chat formatting, vanish privacy, kinship nation chat]
+
+  - id: ouroveil
+    title: OuroVeil
+    modId: ouroveil
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 1.0.0
+    file: ouroveil-1.0.0.jar
+    repository: https://github.com/ouroboros-smp/world-border-veil
+    obligations: [non-operator boundary enforcement, restart persistence, full-manifest boot]
+    touchpoints: [Chunky pregeneration boundary]
+
+  - id: secret-spectator
+    title: Secret Spectator
+    modId: secret-spectator
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 1.1.1
+    file: secret-spectator-1.1.1.jar
+    obligations: [privacy and visibility acceptance, full-manifest boot]
+    touchpoints: [vanish state, relay privacy]
+
+  # Critical dependency: first-party permission behavior must be proven through this implementation.
+  - id: luckperms
+    title: LuckPerms
+    modId: luckperms
+    owner: third-party
+    bucket: critical-dependency
+    enabled: true
+    version: 5.5.57
+    filePattern: "LuckPerms-Fabric-5.5.57*.jar"
+    obligations: [grant path, denial path, live group-change propagation]
+    touchpoints: [first-party command permissions]
+
+  # Gameplay-affecting stack: load assertions plus targeted collision checks at known touchpoints.
+  - id: clumps
+    title: Clumps
+    modId: clumps
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "Clumps-*.jar"
+    obligations: [full-manifest boot, soak]
+    touchpoints: [entity aggregation and performance]
+
+  - id: collective
+    title: Collective
+    modId: collective
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "collective-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: doubledoors
+    title: Double Doors
+    modId: doubledoors
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "doubledoors-*.jar"
+    obligations: [full-manifest boot]
+    touchpoints: [rooms door discovery]
+
+  - id: letmedespawn
+    title: Let Me Despawn
+    modId: letmedespawn
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "letmedespawn-*.jar"
+    obligations: [full-manifest boot]
+    touchpoints: [WildAnimalBalancer population behavior]
+
+  - id: appleskin
+    title: AppleSkin
+    modId: appleskin
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "appleskin-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: styled-chat
+    title: Styled Chat
+    modId: styled_chat
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "styled-chat-*.jar"
+    obligations: [full-manifest boot, targeted chat-format collision check]
+    touchpoints: [Ouroboros Relay outbound formatting]
+
+  - id: styled-player-list
+    title: Styled Player List
+    modId: styledplayerlist
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "styledplayerlist-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: vanish
+    title: Vanish
+    modId: vanish
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "vanish-*.jar"
+    obligations: [full-manifest boot, targeted privacy collision check]
+    touchpoints: [Ouroboros Relay and Secret Spectator visibility]
+
+  - id: almanac
+    title: Almanac
+    modId: almanac
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    filePattern: "almanac-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: meow-anti-xray
+    title: Meow Anti-Xray
+    modId: meow_anti_xray
+    owner: third-party
+    bucket: gameplay
+    enabled: true
+    version: 1.4.0
+    filePattern: "meow-anti-xray-1.4.0*.jar"
+    obligations: [full-manifest boot, chunk-send regression]
+    touchpoints: [Lithium random-tick mixins]
+
+  # Performance stack: boot/mixin compatibility and bounded-soak health are the obligation.
+  - id: lithium
+    title: Lithium
+    modId: lithium
+    owner: third-party
+    bucket: performance
+    enabled: true
+    version: 0.25.2
+    filePattern: "lithium-0.25.2*.jar"
+    obligations: [full-manifest boot, soak]
+    touchpoints: [Meow Anti-Xray chunk sending]
+
+  - id: krypton
+    title: Krypton
+    modId: krypton
+    owner: third-party
+    bucket: performance
+    enabled: true
+    filePattern: "krypton-*.jar"
+    obligations: [full-manifest boot, soak]
+
+  - id: ferritecore
+    title: FerriteCore
+    modId: ferritecore
+    owner: third-party
+    bucket: performance
+    enabled: true
+    filePattern: "ferritecore-*.jar"
+    obligations: [full-manifest boot, soak]
+
+  - id: vmp
+    title: Very Many Players
+    modId: vmp
+    owner: third-party
+    bucket: performance
+    enabled: true
+    filePattern: "vmp-*.jar"
+    obligations: [full-manifest boot, soak]
+
+  - id: servercore
+    title: ServerCore
+    modId: servercore
+    owner: third-party
+    bucket: performance
+    enabled: true
+    filePattern: "servercore-*.jar"
+    obligations: [full-manifest boot, soak]
+
+  - id: scalablelux
+    title: ScalableLux
+    modId: scalablelux
+    owner: third-party
+    bucket: performance
+    enabled: true
+    filePattern: "ScalableLux-*.jar"
+    obligations: [full-manifest boot, soak]
+
+  - id: c2me
+    title: C2ME
+    modId: c2me
+    owner: third-party
+    bucket: performance
+    enabled: false
+    filePattern: "c2me-*.jar"
+    obligations: [remain disabled until its recorded production conflict is resolved]
+
+  # Protocol/infrastructure stack: present in the boot gate; proxied and multi-version paths remain explicit deltas.
+  - id: viafabric
+    title: ViaFabric
+    modId: viafabric
+    owner: third-party
+    bucket: protocol-infrastructure
+    enabled: true
+    version: 0.4.21+172
+    filePattern: "ViaFabric-0.4.21+172*.jar"
+    obligations: [full-manifest boot, future older-protocol join]
+
+  - id: viabackwards
+    title: ViaBackwards
+    modId: viabackwards
+    owner: third-party
+    bucket: protocol-infrastructure
+    enabled: true
+    version: 5.10.0
+    filePattern: "ViaBackwards-5.10.0*.jar"
+    obligations: [full-manifest boot, lockstep compatibility with ViaFabric bundled ViaVersion]
+
+  - id: fabricproxy-lite
+    title: FabricProxy-Lite
+    modId: fabricproxy-lite
+    owner: third-party
+    bucket: protocol-infrastructure
+    enabled: true
+    version: 2.12.0
+    filePattern: "FabricProxy-Lite-2.12.0*.jar"
+    obligations: [full-manifest boot, future proxied-connection profile]
+
+  - id: voicechat
+    title: Simple Voice Chat
+    modId: voicechat
+    owner: third-party
+    bucket: protocol-infrastructure
+    enabled: true
+    version: 2.6.20+26.2
+    filePattern: "voicechat-fabric-2.6.20+26.2*.jar"
+    obligations: [full-manifest boot, record UDP as an environment delta]
+
+  - id: fabric-language-kotlin
+    title: Fabric Language Kotlin
+    modId: fabric-language-kotlin
+    owner: third-party
+    bucket: protocol-infrastructure
+    enabled: true
+    filePattern: "fabric-language-kotlin-*.jar"
+    obligations: [full-manifest boot]
+
+  # Operational tooling: loader presence is asserted; functional correctness remains operational.
+  - id: fabric-api
+    title: Fabric API
+    modId: fabric-api
+    owner: third-party
+    bucket: operational
+    enabled: true
+    version: 0.154.2+26.2
+    file: fabric-api-0.154.2+26.2.jar
+    obligations: [full-manifest boot]
+
+  - id: spark
+    title: spark
+    modId: spark
+    owner: third-party
+    bucket: operational
+    enabled: true
+    version: 1.10.173
+    filePattern: "spark-1.10.173*.jar"
+    obligations: [full-manifest boot]
+
+  - id: pl3xmap
+    title: Pl3xMap
+    modId: pl3xmap
+    owner: third-party
+    bucket: operational
+    enabled: true
+    filePattern: "Pl3xMap-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: chunky
+    title: Chunky
+    modId: chunky
+    owner: third-party
+    bucket: operational
+    enabled: true
+    version: 1.5.3
+    filePattern: "Chunky-Fabric-1.5.3*.jar"
+    obligations: [full-manifest boot]
+    touchpoints: [OuroVeil generation boundary]
+
+  - id: invview
+    title: InvView
+    modId: invview
+    owner: third-party
+    bucket: operational
+    enabled: true
+    filePattern: "InvView-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: worldedit
+    title: WorldEdit
+    modId: worldedit
+    owner: third-party
+    bucket: operational
+    enabled: true
+    version: 7.4.4
+    filePattern: "worldedit-mod-7.4.4*.jar"
+    obligations: [full-manifest boot]
+
+  - id: coreprotect
+    title: CoreProtect
+    modId: coreprotect
+    owner: third-party
+    bucket: operational
+    enabled: true
+    filePattern: "CoreProtect-*.jar"
+    obligations: [full-manifest boot unless confirmed absent from Fabric production]
+
+  - id: ledger
+    title: Ledger
+    modId: ledger
+    owner: third-party
+    bucket: operational
+    enabled: true
+    version: 1.3.23
+    filePattern: "ledger-1.3.23*.jar"
+    obligations: [full-manifest boot]
+
+  - id: ledger-databases
+    title: Ledger Databases
+    modId: ledger-databases
+    owner: third-party
+    bucket: operational
+    enabled: true
+    filePattern: "ledger-databases-*.jar"
+    obligations: [full-manifest boot]
+
+  - id: fabricexporter
+    title: FabricExporter
+    modId: fabricexporter
+    owner: third-party
+    bucket: operational
+    enabled: true
+    version: 1.0.22
+    filePattern: "fabricexporter-1.0.22*.jar"
+    obligations: [full-manifest boot]
+
+  - id: grimac
+    title: GrimAC
+    modId: grimac
+    owner: third-party
+    bucket: operational
+    enabled: false
+    version: 2.3.74
+    filePattern: "grimac-fabric-2.3.74*.jar"
+    obligations: [remain disabled until a Minecraft 26.2-compatible build is approved]
