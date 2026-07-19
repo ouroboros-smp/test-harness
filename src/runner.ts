@@ -344,20 +344,20 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
     case "client.move": await client().move(string("control") as never, number("durationMs", 500)); return;
     case "client.use_block": {
       const target = client();
-      const pos = await clientBlockPosition(action, target);
+      const pos = await clientBlockPosition(context, action, target);
       await target.useBlock(pos.x, pos.y, pos.z);
       return;
     }
     case "client.break_block": {
       const target = client();
-      const pos = await clientBlockPosition(action, target);
+      const pos = await clientBlockPosition(context, action, target);
       await target.breakBlock(pos.x, pos.y, pos.z);
       return;
     }
     case "client.place_block": {
       const face = action.face as { x?: number; y?: number; z?: number } | undefined;
       const target = client();
-      const pos = await clientBlockPosition(action, target);
+      const pos = await clientBlockPosition(context, action, target);
       const normalizedFace = { x: face?.x ?? 0, y: face?.y ?? 1, z: face?.z ?? 0 };
       const placed = {
         x: pos.x + normalizedFace.x,
@@ -790,6 +790,7 @@ function assertComparison(actual: unknown, operator: JsonValue, expected: unknow
 }
 
 async function clientBlockPosition(
+  context: RunnerContext,
   action: HarnessAction,
   client: ProtocolClient,
 ): Promise<{ x: number; y: number; z: number }> {
@@ -798,13 +799,23 @@ async function clientBlockPosition(
     y: Number(action.y ?? 0),
     z: Number(action.z ?? 0),
   };
-  if (action.relative !== true) return requested;
-  const state = await client.state();
-  const base = {
-    x: Number(getJsonPath(state, "position.x")),
-    y: Number(getJsonPath(state, "position.y")),
-    z: Number(getJsonPath(state, "position.z")),
-  };
+  if (typeof action.relativeTo !== "string" && action.relative !== true) return requested;
+  const relativeTo = typeof action.relativeTo === "string" ? action.relativeTo : undefined;
+  const serverAnchored = relativeTo !== undefined;
+  const state = serverAnchored
+    ? await context.bridge.request("GET", `/v1/player/state?name=${encodeURIComponent(relativeTo)}`)
+    : await client.state();
+  const base = serverAnchored
+    ? {
+        x: Number(getJsonPath(state, "x")),
+        y: Number(getJsonPath(state, "y")),
+        z: Number(getJsonPath(state, "z")),
+      }
+    : {
+        x: Number(getJsonPath(state, "position.x")),
+        y: Number(getJsonPath(state, "position.y")),
+        z: Number(getJsonPath(state, "position.z")),
+      };
   if (![...Object.values(requested), ...Object.values(base)].every(Number.isFinite)) {
     throw new HarnessError("CLIENT_POSITION_UNAVAILABLE", `Cannot resolve a relative block position for ${client.spec.name}`);
   }
