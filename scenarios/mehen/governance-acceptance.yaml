@@ -97,7 +97,7 @@ steps:
     timeoutSeconds: 120
     actions:
       - { type: client.command, client: moderator, command: "mehen ban MehenTarget 1s harness-expired-ban --source harness" }
-      - { type: wait.duration, seconds: 4 }
+      - { type: wait.duration, seconds: 8 }
       - { type: client.reconnect, client: target, timeoutMs: 30000 }
     assertions:
       - { type: bridge.json, path: "/v1/player/state?name=MehenTarget", jsonPath: name, expected: MehenTarget }
