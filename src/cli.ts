@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { clientExecutable } from "./client.js";
 import { errorMessage, HarnessError } from "./errors.js";
 import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, resolveScenario, TRACKED_ISSUES } from "./manifest.js";
-import { runPortfolio } from "./portfolio.js";
+import { loadPortfolioManifest, runPortfolio } from "./portfolio.js";
+import {
+  auditProductionManifest,
+  buildFullManifestCompatibilityScenario,
+  formatProductionManifestAudit,
+  loadProductionManifest,
+  resolveProductionArtifacts,
+} from "./production-manifest.js";
 import { runScenario } from "./runner.js";
 import type { JsonPrimitive, RunOptions } from "./types.js";
 import { fileExists, withTimeout } from "./utils.js";
@@ -23,6 +30,8 @@ async function main(): Promise<void> {
     case "validate": await validateScenarios(args.flags.has("require-all-issues"), args.flags.has("json")); return;
     case "doctor": await doctor(args.flags.has("json")); return;
     case "portfolio": await portfolio(args); return;
+    case "manifest-check": await manifestCheck(args); return;
+    case "interop": await interop(args); return;
     case "run": {
       const reference = args.positionals[0];
       if (!reference) throw new HarnessError("USAGE", "run requires a scenario id or path");
@@ -42,6 +51,8 @@ Usage:
   ouro-harness validate [--require-all-issues] [--json]
   ouro-harness doctor [--json]
   ouro-harness portfolio [options]
+  ouro-harness manifest-check [options]
+  ouro-harness interop --mods-directory PATH [options]
   ouro-harness run <scenario-id|path> [options]
   ouro-harness smoke [options]
 
@@ -64,6 +75,16 @@ Portfolio options:
   --variable NAME=VALUE  Override a catalog/scenario variable (repeatable)
   --keep-run-directory    Retain generated server state
   --verbose               Stream build and server output
+
+Production manifest options:
+  --manifest PATH         Production manifest (default: config/production-manifest.yaml)
+  --portfolio PATH        Portfolio catalog used for drift checks
+  --mods-directory PATH   Exact production jar directory to audit or run
+  --strict                Treat missing third-party pins as errors in manifest-check
+
+Interop also accepts --output, --cache, --dry-run, --keep-run-directory,
+and --verbose. It always requires third-party pins and refuses to launch while
+catalog/version drift or production-directory inventory errors remain.
 `);
 }
 
@@ -76,6 +97,7 @@ async function listScenarios(asJson: boolean): Promise<void> {
 
 async function validateScenarios(requireAllIssues: boolean, asJson: boolean): Promise<void> {
   const entries = await loadAllScenarios();
+  const productionManifest = await loadProductionManifest();
   const ids = new Map<string, string[]>();
   for (const { path, scenario } of entries) ids.set(scenario.id, [...(ids.get(scenario.id) ?? []), path]);
   const duplicates = [...ids.entries()].filter(([, paths]) => paths.length > 1);
@@ -89,11 +111,13 @@ async function validateScenarios(requireAllIssues: boolean, asJson: boolean): Pr
     scenarios: entries.length,
     coveredIssues: [...coverage.coverage.keys()].sort((a, b) => a - b),
     missingIssues: coverage.missing,
+    productionMods: productionManifest.mods.length,
+    enabledProductionMods: productionManifest.mods.filter((mod) => mod.enabled).length,
     failures,
   };
   if (asJson) console.log(JSON.stringify(output, null, 2));
   else {
-    console.log(`Validated ${entries.length} scenarios; issue coverage ${output.coveredIssues.length}/${TRACKED_ISSUES.length}.`);
+    console.log(`Validated ${entries.length} scenarios and ${output.enabledProductionMods}/${output.productionMods} enabled production mods; issue coverage ${output.coveredIssues.length}/${TRACKED_ISSUES.length}.`);
     for (const failure of failures) console.error(`- ${failure}`);
   }
   if (failures.length) throw new HarnessError("VALIDATION_FAILED", failures.join("; "));
@@ -181,6 +205,45 @@ async function portfolio(args: ParsedArgs): Promise<void> {
   if (report.status === "failed") process.exitCode = 1;
 }
 
+async function manifestCheck(args: ParsedArgs): Promise<void> {
+  const manifest = await loadProductionManifest(lastFlag(args, "manifest"));
+  const portfolioManifest = await loadPortfolioManifest(lastFlag(args, "portfolio"));
+  const audit = await auditProductionManifest(manifest, portfolioManifest, {
+    ...(lastFlag(args, "mods-directory") ? { modsDirectory: lastFlag(args, "mods-directory")! } : {}),
+    strictThirdPartyPins: args.flags.has("strict"),
+  });
+  console.log(args.flags.has("json") ? JSON.stringify(audit, null, 2) : formatProductionManifestAudit(audit));
+  if (!audit.ok) process.exitCode = 1;
+}
+
+async function interop(args: ParsedArgs): Promise<void> {
+  const modsDirectory = lastFlag(args, "mods-directory");
+  if (!modsDirectory) throw new HarnessError("USAGE", "interop requires --mods-directory PATH");
+  const manifest = await loadProductionManifest(lastFlag(args, "manifest"));
+  const portfolioManifest = await loadPortfolioManifest(lastFlag(args, "portfolio"));
+  const audit = await auditProductionManifest(manifest, portfolioManifest, {
+    modsDirectory,
+    strictThirdPartyPins: true,
+  });
+  if (!audit.ok) throw new HarnessError("PRODUCTION_MANIFEST_DRIFT", formatProductionManifestAudit(audit), audit);
+
+  const scenario = buildFullManifestCompatibilityScenario(manifest);
+  const output = lastFlag(args, "output");
+  const cache = lastFlag(args, "cache");
+  const report = await runScenario(scenario, await loadPins(), {
+    artifacts: await resolveProductionArtifacts(manifest, modsDirectory),
+    dryRun: args.flags.has("dry-run"),
+    keepRunDirectory: args.flags.has("keep-run-directory"),
+    verbose: args.flags.has("verbose"),
+    ...(output ? { output } : {}),
+    ...(cache ? { cache } : {}),
+  });
+  console.log(`${report.status.toUpperCase()} ${report.scenario.id}`);
+  console.log(`Report: ${report.artifacts.report}`);
+  console.log(`Readable report: ${report.artifacts.html}`);
+  if (report.status === "failed") process.exitCode = 1;
+}
+
 function parseVariables(values: string[]): Record<string, JsonPrimitive> {
   const variables: Record<string, JsonPrimitive> = {};
   for (const value of values) {
@@ -200,7 +263,10 @@ function parseVariables(values: string[]): Record<string, JsonPrimitive> {
 function parseArgs(values: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags = new Map<string, string[]>();
-  const valueFlags = new Set(["artifact", "variable", "output", "cache", "config", "minecraft", "loader", "fabric-api"]);
+  const valueFlags = new Set([
+    "artifact", "variable", "output", "cache", "config", "minecraft", "loader", "fabric-api",
+    "manifest", "portfolio", "mods-directory",
+  ]);
   for (let index = 0; index < values.length; index++) {
     const value = values[index]!;
     if (!value.startsWith("--")) {

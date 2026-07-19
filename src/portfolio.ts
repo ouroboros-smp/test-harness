@@ -70,6 +70,9 @@ export function validatePortfolioManifest(value: unknown): string[] {
     else ids.add(target.id);
     if (typeof target.title !== "string" || !target.title) failures.push(`targets[${index}].title is required`);
     if (typeof target.repository !== "string" || !target.repository) failures.push(`targets[${index}].repository is required`);
+    if (target.testedVersion !== undefined && (typeof target.testedVersion !== "string" || !target.testedVersion)) {
+      failures.push(`targets[${index}].testedVersion must be a non-empty string`);
+    }
     if (!Array.isArray(target.build) || target.build.length === 0) failures.push(`targets[${index}].build must be a non-empty array`);
     else for (const [commandIndex, rawCommand] of target.build.entries()) {
       if (!rawCommand || typeof rawCommand !== "object" || Array.isArray(rawCommand)) {

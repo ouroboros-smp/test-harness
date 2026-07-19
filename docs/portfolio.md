@@ -7,6 +7,7 @@ tests together without putting repository-specific paths into scenario files.
 Each target declares:
 
 - a stable id, title, and checkout path;
+- the exact `testedVersion` used by production drift checks;
 - one or more clean build/test commands with an explicit Java major;
 - the exact packaged jars supplied to scenario artifact names;
 - optional scenario variables, such as a real-client GameTest checkout; and
@@ -56,3 +57,17 @@ values. Downloads share the normal harness cache.
 Artifact paths intentionally name versioned release jars. Updating a mod
 version therefore requires an explicit catalog change, preventing a stale jar
 from silently satisfying a glob.
+
+## Relate the portfolio to production
+
+The catalog answers "what do we test?" while
+`config/production-manifest.yaml` answers "what do we deploy together?" Run
+`node dist/cli.js manifest-check` to compare them. Enabled first-party mods
+must name a portfolio target, and its production version must equal the
+target's `testedVersion`. An optional `--mods-directory` check also makes the
+manifest exhaustive over the concrete jar set.
+
+The portfolio contains runnable Fabric targets only. Repositories that are
+websites, documentation, external services, alternate server engines, or
+legacy Folia implementations belong in the assessment matrix but not in this
+executable catalog.
