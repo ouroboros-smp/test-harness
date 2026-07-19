@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAllScenarios } from "./manifest.js";
-import { loadPortfolioManifest, runPortfolio, validatePortfolioManifest } from "./portfolio.js";
+import { loadPortfolioManifest, runPortfolio, validatePortfolioJavaVersion, validatePortfolioManifest } from "./portfolio.js";
 
 test("portfolio catalog maps every maintained scenario exactly once", async () => {
   const manifest = await loadPortfolioManifest();
@@ -46,12 +46,13 @@ test("portfolio validation rejects duplicate and malformed targets", () => {
     title: "Invalid",
     targets: [
       { id: "same", title: "One", repository: ".", build: [{ name: "build", command: ["true"] }], scenarios: ["one"] },
-      { id: "same", title: "Two", repository: ".", build: [{ name: "", command: [], base: "elsewhere" }], scenarios: [] },
+      { id: "same", title: "Two", repository: ".", build: [{ name: "", command: [], base: "elsewhere", environment: { Java_Home: "override" } }], scenarios: [] },
     ],
   });
   assert.ok(failures.some((failure) => failure.includes("duplicate target id")));
   assert.ok(failures.some((failure) => failure.includes("command must be")));
   assert.ok(failures.some((failure) => failure.includes("base must be")));
+  assert.ok(failures.some((failure) => failure.includes("must not override JAVA_HOME")));
   assert.ok(failures.some((failure) => failure.includes("scenarios must be")));
 });
 
@@ -112,6 +113,49 @@ test("portfolio builds never inherit ambient Java when a declared toolchain is a
     assert.equal(report.targets[0]?.builds[0]?.status, "failed");
     assert.match(report.targets[0]?.builds[0]?.error ?? "", new RegExp(variable));
     assert.match(report.targets[0]?.builds[0]?.error ?? "", /never fall back to ambient Java/);
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("portfolio Java validation rejects a wrong declared major", () => {
+  assert.doesNotThrow(() => validatePortfolioJavaVersion(25, 'openjdk version "25.0.3" 2026-04-21 LTS', "/jdk-25/bin/java"));
+  assert.doesNotThrow(() => validatePortfolioJavaVersion(8, 'java version "1.8.0_472"', "/jdk-8/bin/java"));
+  assert.throws(
+    () => validatePortfolioJavaVersion(25, 'openjdk version "21.0.11" 2026-04-21 LTS', "/jdk-21/bin/java"),
+    /requires Java 25.*reported Java 21/,
+  );
+  assert.throws(
+    () => validatePortfolioJavaVersion(25, "not a Java runtime", "/not-java"),
+    /Could not determine the Java major/,
+  );
+});
+
+test("portfolio Java preflight rejects a nonexistent executable", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ouro-portfolio-java-path-test-"));
+  const javaMajor = 2_147_483_646;
+  const variable = `OURO_HARNESS_JAVA_${javaMajor}`;
+  const previous = process.env[variable];
+  process.env[variable] = join(directory, "missing-java");
+  try {
+    const config = join(directory, "portfolio.yaml");
+    await writeFile(config, JSON.stringify({
+      schemaVersion: 1,
+      title: "Missing Java executable",
+      targets: [{
+        id: "missing-java-executable",
+        title: "Missing Java executable",
+        repository: directory,
+        build: [{ name: "must not run", command: [process.execPath, "-e", "process.exit(0)"], java: javaMajor }],
+        scenarios: ["harness/action-contract"],
+      }],
+    }), "utf8");
+
+    const report = await runPortfolio({ config, output: join(directory, "output"), keepRunDirectory: false, verbose: false });
+    assert.equal(report.targets[0]?.builds[0]?.status, "failed");
+    assert.match(report.targets[0]?.builds[0]?.error ?? "", /could not execute Java/);
   } finally {
     if (previous === undefined) delete process.env[variable];
     else process.env[variable] = previous;

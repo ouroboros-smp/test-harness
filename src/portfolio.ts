@@ -90,6 +90,9 @@ export function validatePortfolioManifest(value: unknown): string[] {
       if (command.java !== undefined && (!Number.isInteger(command.java) || Number(command.java) < 1)) failures.push(`targets[${index}].build[${commandIndex}].java must be a positive integer`);
       if (command.timeoutMinutes !== undefined && (typeof command.timeoutMinutes !== "number" || command.timeoutMinutes <= 0)) failures.push(`targets[${index}].build[${commandIndex}].timeoutMinutes must be positive`);
       if (command.environment !== undefined && !isPrimitiveRecord(command.environment, false)) failures.push(`targets[${index}].build[${commandIndex}].environment must contain string, number, or boolean values`);
+      if (command.environment && Object.keys(command.environment as Record<string, unknown>).some((name) => name.toUpperCase() === "JAVA_HOME")) {
+        failures.push(`targets[${index}].build[${commandIndex}].environment must not override JAVA_HOME`);
+      }
     }
     if (!Array.isArray(target.scenarios) || target.scenarios.length === 0 || target.scenarios.some((scenario) => typeof scenario !== "string" || !scenario)) {
       failures.push(`targets[${index}].scenarios must be a non-empty string array`);
@@ -260,21 +263,7 @@ async function runBuild(command: PortfolioCommandSpec, cwd: string, log: string,
   let combined = "";
   let failure: string | undefined;
   try {
-    const javaVariable = command.java ? `OURO_HARNESS_JAVA_${command.java}` : undefined;
-    const javaExecutable = javaVariable ? process.env[javaVariable] : undefined;
-    if (javaVariable && !javaExecutable) {
-      throw new HarnessError(
-        "MISSING_PORTFOLIO_JAVA",
-        `${javaVariable} must point to the Java ${command.java} executable; portfolio builds never fall back to ambient Java`,
-      );
-    }
-    if (javaExecutable && !isAbsolute(javaExecutable)) {
-      throw new HarnessError(
-        "INVALID_PORTFOLIO_JAVA",
-        `${javaVariable} must be an absolute path to the Java ${command.java} executable: ${javaExecutable}`,
-      );
-    }
-    const javaHome = javaExecutable ? dirname(dirname(javaExecutable)) : undefined;
+    const javaHome = await resolvePortfolioJavaHome(command.java);
     await new Promise<void>((resolveCommand, rejectCommand) => {
       const child = execFile(executable, executableArgs, {
         cwd,
@@ -284,8 +273,8 @@ async function runBuild(command: PortfolioCommandSpec, cwd: string, log: string,
         maxBuffer: 64 * 1024 * 1024,
         env: {
           ...process.env,
-          ...(javaHome ? { JAVA_HOME: javaHome } : {}),
           ...Object.fromEntries(Object.entries(command.environment ?? {}).map(([name, value]) => [name, String(value)])),
+          ...(javaHome ? { JAVA_HOME: javaHome } : {}),
         },
       }, (error, stdout, stderr) => {
         combined = `${stdout}${stderr}`;
@@ -315,6 +304,70 @@ async function runBuild(command: PortfolioCommandSpec, cwd: string, log: string,
   };
   console.log(`${result.status === "passed" ? "PASS " : "FAIL "} build · ${command.name}`);
   return result;
+}
+
+const portfolioJavaHomes = new Map<string, Promise<string>>();
+
+async function resolvePortfolioJavaHome(requiredMajor: number | undefined): Promise<string | undefined> {
+  if (requiredMajor === undefined) return undefined;
+  const variable = `OURO_HARNESS_JAVA_${requiredMajor}`;
+  const executable = process.env[variable];
+  if (!executable) {
+    throw new HarnessError(
+      "MISSING_PORTFOLIO_JAVA",
+      `${variable} must point to the Java ${requiredMajor} executable; portfolio builds never fall back to ambient Java`,
+    );
+  }
+  if (!isAbsolute(executable)) {
+    throw new HarnessError(
+      "INVALID_PORTFOLIO_JAVA",
+      `${variable} must be an absolute path to the Java ${requiredMajor} executable: ${executable}`,
+    );
+  }
+  const key = `${requiredMajor}\0${executable}`;
+  let resolution = portfolioJavaHomes.get(key);
+  if (!resolution) {
+    resolution = inspectPortfolioJava(executable, requiredMajor, variable);
+    portfolioJavaHomes.set(key, resolution);
+  }
+  return resolution;
+}
+
+async function inspectPortfolioJava(executable: string, requiredMajor: number, variable: string): Promise<string> {
+  const output = await new Promise<string>((resolveVersion, rejectVersion) => {
+    execFile(executable, ["-version"], {
+      encoding: "utf8",
+      timeout: 15_000,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        rejectVersion(new HarnessError(
+          "INVALID_PORTFOLIO_JAVA",
+          `${variable} could not execute Java ${requiredMajor}: ${errorMessage(error)}`,
+        ));
+      } else resolveVersion(`${stdout}${stderr}`);
+    });
+  });
+  validatePortfolioJavaVersion(requiredMajor, output, executable);
+  return dirname(dirname(executable));
+}
+
+export function validatePortfolioJavaVersion(requiredMajor: number, output: string, executable: string): void {
+  const match = output.match(/\bversion\s+"(?:(1)\.)?(\d+)/i);
+  if (!match) {
+    throw new HarnessError(
+      "INVALID_PORTFOLIO_JAVA",
+      `Could not determine the Java major reported by ${executable}`,
+    );
+  }
+  const actualMajor = Number(match[2]);
+  if (actualMajor !== requiredMajor) {
+    throw new HarnessError(
+      "INVALID_PORTFOLIO_JAVA",
+      `Portfolio build requires Java ${requiredMajor}, but ${executable} reported Java ${actualMajor}`,
+    );
+  }
 }
 
 async function writePortfolioReport(report: PortfolioReport, directory: string): Promise<Record<string, string>> {

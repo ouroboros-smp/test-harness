@@ -87,7 +87,7 @@ node scripts/gradle.mjs -Pcoffer_jar=<coffer-server-jar> -Pcoffer_core_jar=<coff
 
 Use this tier for release gates, portfolio/catalog changes, cross-mod behavior, or an explicit request for the full suite. Build every configured checkout, run repository tests, consume exact packaged jars, and execute every maintained scenario exactly once.
 
-Before starting, set both `OURO_HARNESS_JAVA_25` and `OURO_HARNESS_JAVA_21` to absolute paths for the corresponding `java` executables and verify each with `-version`. Set `OURO_HARNESS_JAVA` to the same Java 25 executable for `doctor`. Portfolio builds fail fast when a declared Java is absent instead of inheriting ambient Java.
+Before starting, set both `OURO_HARNESS_JAVA_25` and `OURO_HARNESS_JAVA_21` to absolute paths for the corresponding `java` executables. Set `OURO_HARNESS_JAVA` to the same Java 25 executable for `doctor`. The portfolio probes each executable, requires the declared major, derives an authoritative `JAVA_HOME`, and fails fast instead of inheriting ambient Java.
 
 The portfolio builds Coffer's Fabric server and core jars before invoking the harness-owned adapter with those exact compile-only inputs. An alternate `cofferRepository` override therefore remains self-contained and does not depend on a sibling checkout or stale adapter jar.
 

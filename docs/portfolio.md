@@ -39,8 +39,9 @@ npm run harness -- portfolio \
 Set `OURO_HARNESS_JAVA_25` and `OURO_HARNESS_JAVA_21` to the corresponding
 absolute `java` executable paths before every mixed-Java portfolio run. The
 runner derives `JAVA_HOME` for each build from those values and fails before a
-build rather than silently inheriting an ambient Java. Downloads share the
-normal harness cache.
+build when the executable reports the wrong major rather than silently
+inheriting an ambient Java. Per-command environments cannot override the
+derived `JAVA_HOME`. Downloads share the normal harness cache.
 
 Build commands run from the target repository by default. A command with
 `base: harness` runs from the harness root; Coffer uses this after its Fabric
