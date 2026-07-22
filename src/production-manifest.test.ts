@@ -28,9 +28,10 @@ test("production manifest classifies the complete named stack and exposes known 
   const audit = await auditProductionManifest(manifest, portfolio);
   assert.equal(audit.ok, false);
   assert.ok(audit.findings.some((finding) => finding.code === "VERSION_DRIFT" && finding.mod === "mehen"));
-  for (const id of ["ouroboros-relay", "ouroveil", "secret-spectator"]) {
+  for (const id of ["ouroboros-relay", "secret-spectator"]) {
     assert.ok(audit.findings.some((finding) => finding.code === "UNCATALOGUED_FIRST_PARTY" && finding.mod === id));
   }
+  assert.ok(!audit.findings.some((finding) => finding.code === "UNCATALOGUED_FIRST_PARTY" && finding.mod === "ouroveil"));
   assert.ok(!audit.findings.some((finding) => finding.code === "UNBOUND_ARTIFACT_VERSION"));
   assert.ok(audit.findings.some((finding) => finding.code === "UNPINNED_VERSION" && finding.severity === "warning"));
   const releaseAudit = await auditProductionManifest(manifest, portfolio, { strictThirdPartyPins: true });

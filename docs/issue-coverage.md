@@ -29,6 +29,7 @@ harness-only bridge on 2026-07-18.
 | #33 | Deterministic generated-terrain fixtures for containers, rooms, and entity spawning | `coffer/runtime-acceptance`, `rooms/runtime-acceptance`, `patrol/runtime-acceptance` |
 | #34 | Server-tick synchronization for repeated KeepGear death/respawn cases | `keepgear/acceptance` |
 | #36 | Authoritative server-position anchoring for cross-player block actions | `coffer/runtime-acceptance` |
+| #39 | Composable production-stack behavior contracts; OuroVeil contributes packaged boot, unmodded-client recovery, restart, and companion-client GameTest evidence | `ouroveil/release-acceptance`, `portfolio/full-manifest-compatibility` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
 | #44 | Canonical Coffer counters on the installed FabricExporter endpoint | `coffer/metrics-exporter` |
 | #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
@@ -39,9 +40,10 @@ tracks behavioral production-stack interoperability. The executable Coffer
 portion is split between `coffer/civilization-stack` and
 `coffer/wildanimalbalancer-compatibility`. Its generated
 `portfolio/full-manifest-compatibility` foundation proves the exact loader
-inventory, real-client join, and restart, but does not close the issue until the
-independently owned styled-chat, Relay, vanish, and privacy interactions listed
-there are executable.
+inventory, real-client join, and restart. `ouroveil/release-acceptance` adds the
+first composable first-party behavior contract, but the issue remains open until
+the independently owned styled-chat, Relay, vanish, and privacy interactions
+listed there are executable.
 
 Issue [#47](https://github.com/ouroboros-smp/test-harness/issues/47) records the
 exact Coffer, Rooms, and Parcels boundary criteria. It is deliberately excluded

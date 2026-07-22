@@ -1,0 +1,120 @@
+schemaVersion: 1
+id: ouroveil/release-acceptance
+title: OuroVeil packaged server enforcement, restart, and companion GameTest
+description: Verifies both packaged mod identities, exercises the server jar with an unmodded protocol client before and after restart, and runs the companion's real Fabric client GameTest render path.
+issues: [39]
+tags: [fabric, minecraft-26.2, server, vanilla-client, client-companion, gametest, restart]
+artifacts:
+  server: { required: true, description: Packaged OuroVeil server jar }
+  companion: { required: true, destination: none, description: Packaged OuroVeil client companion jar }
+variables:
+  ouroveilRepository: ../world-border-veil
+clients:
+  - { name: vanilla, username: VeilVanilla }
+server:
+  memoryMb: 1024
+  startupTimeoutSeconds: 240
+  shutdownTimeoutSeconds: 30
+  reuseWorldOnRestart: true
+steps:
+  - id: inspect_artifacts
+    name: Verify the packaged server and companion mod identities
+    actions:
+      - { type: file.write, path: inspect/server/.keep, content: "" }
+      - { type: file.write, path: inspect/companion/.keep, content: "" }
+      - type: process.exec
+        command: [jar, xf, "${artifact.server}", fabric.mod.json]
+        cwd: "${run.directory}/inspect/server"
+        java: 25
+        as: server-jar-inspection
+      - type: process.exec
+        command: [jar, xf, "${artifact.companion}", fabric.mod.json]
+        cwd: "${run.directory}/inspect/companion"
+        java: 25
+        as: companion-jar-inspection
+    assertions:
+      - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: id, expected: ouroveil }
+      - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: version, expected: 1.0.2 }
+      - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: environment, expected: server }
+      - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: id, expected: ouroveil-client }
+      - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: version, expected: 1.0.2 }
+      - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: environment, expected: client }
+
+  - id: companion_client
+    name: Launch the real Fabric client render and mixin GameTest
+    timeoutSeconds: 600
+    actions:
+      - type: process.exec
+        command: ["${platform.gradleWrapper}", :companion:runClientGameTest, --no-daemon, --console=plain, --stacktrace]
+        cwd: "${ouroveilRepository}"
+        java: 25
+        timeoutMs: 600000
+        as: ouroveil-client-gametest-output
+        artifactName: ouroveil-client-gametest.log
+    assertions:
+      - { type: value.json, value: ouroveil-client-gametest-output, operator: contains, expected: BUILD SUCCESSFUL }
+      - { type: value.json, value: ouroveil-client-gametest-output, operator: contains, expected: OuroVeil Companion ready }
+
+  - id: configure
+    name: Configure a nearby deterministic veil before server startup
+    actions:
+      - type: file.write
+        path: config/ouroveil.json
+        content:
+          checkIntervalTicks: 1
+          borders:
+            "minecraft:overworld":
+              enabled: true
+              centerX: 0
+              centerZ: 0
+              radius: 32
+              fog:
+                distance: 16
+                arcHalfWidth: 12
+                stepBlocks: 2
+                maxParticlesPerPlayerPerCycle: 128
+                layers: [cloud, white_ash]
+          breach:
+            impulse: 1.5
+            slownessSeconds: 6
+            deepBreachBlocks: 6
+          bypassUuids: []
+
+  - id: start
+    name: Boot the packaged server mod and join without the companion
+    timeoutSeconds: 260
+    actions:
+      - { type: server.start }
+    assertions:
+      - { type: bridge.json, path: /v1/mods, jsonPath: ouroveil.version, expected: 1.0.2 }
+      - { type: bridge.json, path: /v1/players, jsonPath: "0.name", expected: VeilVanilla }
+      - { type: client.state, client: vanilla, path: gameMode, expected: survival }
+
+  - id: recover
+    name: Recover an unmodded client from a deep veil breach
+    actions:
+      - { type: console.command, command: "tp VeilVanilla 40 100 0" }
+      - { type: wait.ticks, ticks: 20 }
+    assertions:
+      - { type: client.state, client: vanilla, path: position.x, operator: gte, expected: 25 }
+      - { type: client.state, client: vanilla, path: position.x, operator: lte, expected: 31 }
+
+  - id: restart
+    name: Preserve enforcement through a server restart
+    timeoutSeconds: 260
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: console.command, command: "tp VeilVanilla 40 100 0" }
+      - { type: wait.ticks, ticks: 20 }
+    assertions:
+      - { type: bridge.json, path: /v1/mods, jsonPath: ouroveil.version, expected: 1.0.2 }
+      - { type: client.state, client: vanilla, path: position.x, operator: gte, expected: 25 }
+      - { type: client.state, client: vanilla, path: position.x, operator: lte, expected: 31 }
+
+  - id: stop
+    name: Stop cleanly and reject global failure signatures
+    always: true
+    actions:
+      - { type: server.stop }
+    assertions:
+      - { type: log.absent, pattern: "watchdog|wrong thread|uncaught|crash report" }

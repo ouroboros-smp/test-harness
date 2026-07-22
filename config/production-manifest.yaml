@@ -116,9 +116,10 @@ mods:
     owner: first-party
     bucket: first-party
     enabled: true
-    version: 1.0.0
-    file: ouroveil-1.0.0.jar
+    version: 1.0.2
+    file: ouroveil-1.0.2.jar
     repository: https://github.com/ouroboros-smp/world-border-veil
+    portfolioTarget: ouroveil
     obligations: [non-operator boundary enforcement, restart persistence, full-manifest boot]
     touchpoints: [Chunky pregeneration boundary]
 

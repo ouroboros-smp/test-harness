@@ -81,8 +81,8 @@ in [issue #39](https://github.com/ouroboros-smp/test-harness/issues/39).
 The July 18 source inventory is checked in without suppressing its gaps:
 
 - production Mehen `2.0.0` differs from portfolio-tested `1.0.5`;
-- Ouroboros Relay `0.1.0`, OuroVeil `1.0.0`, and Secret Spectator `1.1.1`
-  have no executable portfolio targets; and
+- Ouroboros Relay `0.1.0` and Secret Spectator `1.1.1` have no executable
+  portfolio targets; and
 - several third-party versions still need exact pins from a fresh mods-folder
   export.
 

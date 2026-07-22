@@ -88,8 +88,8 @@ non-strict catalog audit would report them as warnings. It proves packaging,
 loader/mixin compatibility, join, and restart. Behavioral cross-mod assertions
 remain tracked in [issue #39](https://github.com/ouroboros-smp/test-harness/issues/39).
 
-The checked-in manifest deliberately reports the known July 18 gaps: Mehen is
-deployed ahead of its tested version, and Ouroboros Relay, OuroVeil, and Secret
+The checked-in manifest deliberately reports the remaining known July 18 gaps:
+Mehen is deployed ahead of its tested version, and Ouroboros Relay and Secret
 Spectator do not yet have executable portfolio targets. These failures are the
 pre-deploy work queue, not allowlisted drift. Folia is not a harness runtime;
 legacy Folia-only repositories must migrate to Fabric or remain outside the
