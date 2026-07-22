@@ -32,7 +32,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-          cache: gradle
       - name: Install pinned Rust nightly
         run: rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
       - run: npm ci
