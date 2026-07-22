@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-once:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 45
     steps:
       - name: Check out test harness
@@ -51,7 +51,7 @@ jobs:
 
   wildanimalbalancer-compatibility:
     needs: build-once
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -91,7 +91,7 @@ jobs:
   civilization-stack:
     if: ${{ vars.COFFER_CIVILIZATION_STACK_ENABLED == 'true' }}
     needs: build-once
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -147,7 +147,7 @@ jobs:
           - api-protection-packaging
           - permissions-luckperms
           - metrics-exporter
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7

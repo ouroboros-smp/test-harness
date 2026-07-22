@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-candidate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -89,7 +89,7 @@ jobs:
             extra: "--artifact rooms=rooms/platform/fabric/build/libs/rooms-fabric-0.3.1.jar --artifact kinship=kinship/minecraft-fabric/build/libs/kinship-fabric-0.4.0.jar"
           - id: wildanimalbalancer-compatibility
             extra: "--artifact wildanimalbalancer=wildanimalbalancer/fabric/build/libs/WildAnimalBalancer-fabric-2.0.2.jar"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -117,7 +117,7 @@ jobs:
 
   exact-production-manifest:
     needs: build-candidate
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 45
     env:
       PRODUCTION_MOD_BUNDLE_URL: ${{ secrets.PRODUCTION_MOD_BUNDLE_URL }}
