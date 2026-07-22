@@ -15,7 +15,7 @@ const DEFAULT_RULES: LogRule[] = [
     pattern: /^\s*(?:at\s+[\w.$]+\(|Caused by:|Suppressed:)/,
   },
   { id: "uncaught-exception", severity: "error", pattern: /(?:uncaught|unhandled).*(?:exception|error)/i },
-  { id: "watchdog", severity: "error", pattern: /watchdog|server has not responded|server thread.*(?:hung|stalled)/i },
+  { id: "watchdog", severity: "error", pattern: /watchdog|server has not responded|server thread.*\b(?:hung|stalled)\b/i },
   { id: "thread-violation", severity: "error", pattern: /wrong thread|thread[- ]check|not on (?:the )?server thread|concurrentmodificationexception/i },
   { id: "crash", severity: "error", pattern: /crash report|encountered an unexpected exception|failed to start/i },
 ];

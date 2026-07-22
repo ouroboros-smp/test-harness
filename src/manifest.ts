@@ -28,10 +28,13 @@ const ACTION_TYPES = new Set([
   "bridge.request",
   "wait.duration",
   "wait.ticks",
+  "wait.until",
   "wait.event",
   "file.write",
+  "file.delete",
   "snapshot.capture",
   "sqlite.query",
+  "value.extract",
   "soak.run",
   "adapter.invoke",
   "http.request",
@@ -52,6 +55,7 @@ const ASSERTION_TYPES = new Set([
   "bridge.json",
   "snapshot.equals",
   "metric.threshold",
+  "performance.threshold",
   "file.exists",
   "file.json",
   "sqlite.query",
@@ -152,6 +156,13 @@ export function validateScenario(value: unknown): string[] {
         failures.push(`steps[${index}].actions[${actionIndex}] must have a type`);
       } else if (!ACTION_TYPES.has((action as { type: string }).type)) {
         failures.push(`steps[${index}].actions[${actionIndex}] has unknown type ${(action as { type: string }).type}`);
+      } else if ((action as { type: string }).type === "wait.until") {
+        const nested = (action as { assertion?: unknown }).assertion;
+        if (!nested || typeof nested !== "object" || Array.isArray(nested)
+          || typeof (nested as { type?: unknown }).type !== "string"
+          || !ASSERTION_TYPES.has((nested as { type: string }).type)) {
+          failures.push(`steps[${index}].actions[${actionIndex}].assertion must be one known assertion`);
+        }
       }
     }
     for (const [assertionIndex, assertion] of assertions.entries()) {
@@ -168,7 +179,7 @@ export function validateScenario(value: unknown): string[] {
 export const TRACKED_ISSUES = [
   ...Array.from({ length: 22 }, (_, index) => index + 1),
   24, 25, 26, 27, 28, 29,
-  32, 33, 34, 36, 42,
+  32, 33, 34, 36, 39, 42, 44, 45, 46,
 ];
 
 export function issueCoverage(scenarios: Scenario[], expected = TRACKED_ISSUES) {

@@ -42,12 +42,35 @@ test("composite action exposes the stable consumer contract", async () => {
   const action = parse(await readFile(join(repositoryRoot(), "action.yml"), "utf8")) as Record<string, unknown>;
   const inputs = action.inputs as Record<string, unknown>;
   const outputs = action.outputs as Record<string, unknown>;
-  for (const input of ["scenario", "consumer-jar", "minecraft-version", "loader-version", "fabric-api-version"]) {
+  for (const input of ["scenario", "consumer-jar", "named-artifacts", "minecraft-version", "loader-version", "fabric-api-version"]) {
     assert.ok(input in inputs, `missing action input ${input}`);
   }
   for (const output of ["passed", "report", "html", "junit", "server-log", "artifact-directory"]) {
     assert.ok(output in outputs, `missing action output ${output}`);
   }
+});
+
+test("wait.until accepts exactly one known assertion", () => {
+  const valid = {
+    schemaVersion: 1,
+    id: "schema/wait-until",
+    title: "Wait until schema fixture",
+    issues: [1],
+    steps: [{
+      id: "wait",
+      name: "Wait",
+      actions: [{
+        type: "wait.until",
+        timeoutMs: 500,
+        intervalMs: 10,
+        assertion: { type: "bridge.json", path: "/v1/health", expected: true },
+      }],
+    }],
+  };
+  assert.deepEqual(validateScenario(valid), []);
+  const invalid: any = structuredClone(valid);
+  invalid.steps[0]!.actions[0]!.assertion = { type: "server.stop" };
+  assert.ok(validateScenario(invalid).some((failure) => failure.includes("known assertion")));
 });
 
 test("the published schema rejects unknown fields and invalid Minecraft usernames", () => {

@@ -22,6 +22,12 @@ test("zero-valued diagnostic summaries are not treated as failures", () => {
   assert.equal(monitor.findings.length, 0);
 });
 
+test("ordinary installed and disabled messages do not look like a stalled server thread", () => {
+  const monitor = new LogMonitor();
+  monitor.accept("[Server thread/INFO]: FabricExporter is not installed; application metrics are disabled\n");
+  assert.equal(monitor.findings.length, 0);
+});
+
 test("orderly Minecraft client teardown ignores only the first Netty frame attached to the stackless exception", () => {
   const monitor = new LogMonitor();
   monitor.accept("io.netty.channel.StacklessClosedChannelException\n");
