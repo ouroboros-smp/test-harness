@@ -122,10 +122,14 @@ steps:
       - type: wait.until
         assertion: { type: log.present, pattern: 'Set coffer\.admin to true for permmember' }
       - { type: client.command, client: member, command: "coffer reload" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "Config reloaded", count: 1, operator: gte }
       - { type: console.command, command: "lp user PermMember permission set coffer.admin false" }
       - type: wait.until
         assertion: { type: log.present, pattern: 'Set coffer\.admin to false for permmember' }
       - { type: client.command, client: member, command: "coffer reload" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 3, operator: gte }
     assertions:
       - { type: client.event, client: member, event: message, pattern: "Config reloaded", count: 1, operator: gte }
       - { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 3, operator: gte }
