@@ -26,13 +26,15 @@ harness-only bridge on 2026-07-18.
 | #33 | Deterministic generated-terrain fixtures for containers, rooms, and entity spawning | `coffer/runtime-acceptance`, `rooms/runtime-acceptance`, `patrol/runtime-acceptance` |
 | #34 | Server-tick synchronization for repeated KeepGear death/respawn cases | `keepgear/acceptance` |
 | #36 | Authoritative server-position anchoring for cross-player block actions | `coffer/runtime-acceptance` |
+| #39 | Composable production-stack behavior contracts; OuroVeil contributes packaged boot, unmodded-client recovery, restart, and companion-client GameTest evidence | `ouroveil/release-acceptance`, `portfolio/full-manifest-compatibility` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
 tracks behavioral production-stack interoperability. Its generated
 `portfolio/full-manifest-compatibility` foundation proves the exact loader
-inventory, real-client join, and restart, but does not close the issue until the
-domain interactions listed there are executable.
+inventory, real-client join, and restart. `ouroveil/release-acceptance` adds the
+first composable first-party behavior contract, but the issue remains open until
+the remaining cross-mod interactions listed there are executable.
 
 `node dist/cli.js validate --require-all-issues` fails if any tracked issue
 loses scenario coverage. Unit tests enforce the same invariant, and a separate

@@ -5,6 +5,7 @@ variables:
   keepgearRepository: ../KeepGear/fabric
   kinshipRepository: ../kinship
   blindfoldRepository: ../LocalBlindness
+  ouroveilRepository: ../world-border-veil
   mehenRepository: ../mehen
   ourometricsRepository: ../ouro-metrics
   patrolRepository: ../Patrol
@@ -171,3 +172,19 @@ targets:
     variables:
       blindfoldRepository: "${blindfoldRepository}"
     scenarios: [blindfold/client-gametest]
+
+  - id: ouroveil
+    title: OuroVeil
+    repository: "${ouroveilRepository}"
+    testedVersion: 1.0.0
+    build:
+      - name: OuroVeil server and companion clean build and tests
+        command: ["${platform.gradleWrapper}", clean, build, coverageReport, --no-daemon]
+        java: 25
+        timeoutMinutes: 30
+    artifacts:
+      server: { path: build/libs/ouroveil-1.0.0.jar }
+      companion: { path: companion/build/libs/ouroveil-client-1.0.0.jar }
+    variables:
+      ouroveilRepository: "${ouroveilRepository}"
+    scenarios: [ouroveil/release-acceptance]

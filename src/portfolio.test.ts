@@ -12,7 +12,7 @@ test("portfolio catalog maps every maintained scenario exactly once", async () =
   const maintainedScenarios = (await loadAllScenarios()).map(({ scenario }) => scenario.id).sort();
   assert.deepEqual(catalogScenarios, maintainedScenarios);
   assert.equal(new Set(catalogScenarios).size, catalogScenarios.length);
-  assert.equal(manifest.targets.length, 11);
+  assert.equal(manifest.targets.length, 12);
   assert.equal(manifest.targets.find((target) => target.id === "test-harness")?.repository, ".");
 });
 
