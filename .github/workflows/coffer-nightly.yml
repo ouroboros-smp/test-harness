@@ -24,6 +24,12 @@ jobs:
         with: { node-version: "24", cache: npm }
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with: { distribution: temurin, java-version: "25" }
+      - name: Install X virtual framebuffer
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends xvfb
+          fi
       - name: Install pinned Rust nightly
         run: rustup toolchain install nightly-2026-07-13 --profile minimal
       - run: npm ci
