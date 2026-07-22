@@ -176,15 +176,15 @@ targets:
   - id: ouroveil
     title: OuroVeil
     repository: "${ouroveilRepository}"
-    testedVersion: 1.0.0
+    testedVersion: 1.0.2
     build:
       - name: OuroVeil server and companion clean build and tests
         command: ["${platform.gradleWrapper}", clean, build, coverageReport, --no-daemon]
         java: 25
         timeoutMinutes: 30
     artifacts:
-      server: { path: build/libs/ouroveil-1.0.0.jar }
-      companion: { path: companion/build/libs/ouroveil-client-1.0.0.jar }
+      server: { path: build/libs/ouroveil-1.0.2.jar }
+      companion: { path: companion/build/libs/ouroveil-client-1.0.2.jar }
     variables:
       ouroveilRepository: "${ouroveilRepository}"
     scenarios: [ouroveil/release-acceptance]

@@ -34,10 +34,10 @@ steps:
         as: companion-jar-inspection
     assertions:
       - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: id, expected: ouroveil }
-      - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: version, expected: 1.0.0 }
+      - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: version, expected: 1.0.2 }
       - { type: file.json, path: inspect/server/fabric.mod.json, jsonPath: environment, expected: server }
       - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: id, expected: ouroveil-client }
-      - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: version, expected: 1.0.0 }
+      - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: version, expected: 1.0.2 }
       - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: environment, expected: client }
 
   - id: companion_client
@@ -86,7 +86,7 @@ steps:
     actions:
       - { type: server.start }
     assertions:
-      - { type: bridge.json, path: /v1/mods, jsonPath: ouroveil.version, expected: 1.0.0 }
+      - { type: bridge.json, path: /v1/mods, jsonPath: ouroveil.version, expected: 1.0.2 }
       - { type: bridge.json, path: /v1/players, jsonPath: "0.name", expected: VeilVanilla }
       - { type: client.state, client: vanilla, path: gameMode, expected: survival }
 
@@ -107,7 +107,7 @@ steps:
       - { type: console.command, command: "tp VeilVanilla 40 100 0" }
       - { type: wait.ticks, ticks: 20 }
     assertions:
-      - { type: bridge.json, path: /v1/mods, jsonPath: ouroveil.version, expected: 1.0.0 }
+      - { type: bridge.json, path: /v1/mods, jsonPath: ouroveil.version, expected: 1.0.2 }
       - { type: client.state, client: vanilla, path: position.x, operator: gte, expected: 25 }
       - { type: client.state, client: vanilla, path: position.x, operator: lte, expected: 31 }
 
