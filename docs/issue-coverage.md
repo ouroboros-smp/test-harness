@@ -1,6 +1,6 @@
 # GitHub issue traceability
 
-Every open issue at implementation start has an executable schema-valid
+Every tracked executable issue at implementation start has a schema-valid
 scenario or packaging contract. Issues 1–16 were migrated in place from Folia
 assumptions to Fabric 26.2, real protocol clients, and the authenticated
 harness-only bridge on 2026-07-18.
@@ -15,7 +15,10 @@ harness-only bridge on 2026-07-18.
 | #6 | Kinship server-thread/barrier/logout/generation regressions | `kinship/thread-lifecycle-regressions` |
 | #7–#16 | Rooms Fabric discovery, diagnostics, permissions, persistence, reload, restart, and lifecycle behavior | `rooms/runtime-acceptance` |
 | #17 | KeepGear ten-case release acceptance suite | `keepgear/acceptance` |
-| #18–#22 | Coffer Fabric placement, double chest, trust/access policy, API, commands, packaging/interoperability, and restart persistence | `coffer/runtime-acceptance` |
+| #18–#19 | Coffer placement, access modes, trust, keys, and restart persistence | `coffer/access-persistence`; legacy safety net `coffer/runtime-acceptance` |
+| #20 | Double-chest pair placement, synchronization, and restart | `coffer/double-chest-lifecycle`; legacy safety net `coffer/runtime-acceptance` |
+| #21 | Vanilla automation extraction, deposit direction, timing, and logs | `coffer/automation-extraction`; legacy safety net `coffer/runtime-acceptance` |
+| #22 | Public API, Common Protection, ObjectShare, and server-only packaging | `coffer/api-protection-packaging`; legacy safety net `coffer/runtime-acceptance` |
 | #24 | Mehen MariaDB/Redis ban enforcement, expiry, pardon, and restart persistence | `mehen/governance-acceptance` |
 | #25 | Patrol commands, enforcer lifecycle, reload, and restart | `patrol/runtime-acceptance` |
 | #26 | Watershed spring commands, save, restart persistence, and removal | `watershed/spring-lifecycle` |
@@ -27,12 +30,30 @@ harness-only bridge on 2026-07-18.
 | #34 | Server-tick synchronization for repeated KeepGear death/respawn cases | `keepgear/acceptance` |
 | #36 | Authoritative server-position anchoring for cross-player block actions | `coffer/runtime-acceptance` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
+| #44 | Canonical Coffer counters on the installed FabricExporter endpoint | `coffer/metrics-exporter` |
+| #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
+| #46 | Coffer, Rooms, and Kinship principal, management, continuity, provider-failure, and restart contracts | `coffer/civilization-stack` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
-tracks behavioral production-stack interoperability. Its generated
+tracks behavioral production-stack interoperability. The executable Coffer
+portion is split between `coffer/civilization-stack` and
+`coffer/wildanimalbalancer-compatibility`. Its generated
 `portfolio/full-manifest-compatibility` foundation proves the exact loader
 inventory, real-client join, and restart, but does not close the issue until the
-domain interactions listed there are executable.
+independently owned styled-chat, Relay, vanish, and privacy interactions listed
+there are executable.
+
+Issue [#47](https://github.com/ouroboros-smp/test-harness/issues/47) records the
+exact Coffer, Rooms, and Parcels boundary criteria. It is deliberately excluded
+from `TRACKED_ISSUES` and the maintained portfolio until a packaged Parcels
+provider exists. Activation requires proving that Parcels denial precedes Rooms
+storage HP, allowed mutation reaches Rooms, and Parcels never grants Coffer
+access.
+
+Issues #19 through #22 remain open. The focused scenarios map each original
+checklist to executable evidence, but the legacy `coffer/runtime-acceptance`
+scenario remains as a safety net until every original criterion has passed and
+the issue can be closed without overstating coverage.
 
 `node dist/cli.js validate --require-all-issues` fails if any tracked issue
 loses scenario coverage. Unit tests enforce the same invariant, and a separate

@@ -1,0 +1,152 @@
+schemaVersion: 1
+id: coffer/permissions-luckperms
+title: Coffer permission and bypass contracts with packaged LuckPerms
+description: Proves default allow, explicit deny, grant, hot group changes, policy-node isolation, and audited bypass.
+issues: [45]
+tags: [coffer, luckperms, permissions, multi-client]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+  luckperms:
+    required: true
+    description: LuckPerms Fabric 5.5.57 for Minecraft 26.2
+    url: https://download.luckperms.net/1645/fabric/LuckPerms-Fabric-5.5.57.jar
+    sha256: ba25248ab89e95e83aac845a95e42f3e8743d58bd5b77dced50d1e944a5a658c
+clients:
+  - { name: owner, username: PermOwner, gameMode: creative }
+  - { name: member, username: PermMember }
+server:
+  memoryMb: 2048
+  startupTimeoutSeconds: 360
+steps:
+  - id: setup
+    name: Start Coffer and LuckPerms and create a private container
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 32 32" }
+      - { type: console.command, command: "fill 18 63 -2 22 63 3 minecraft:stone" }
+      - { type: console.command, command: "setblock 20 64 0 minecraft:chest" }
+      - { type: console.command, command: "tp PermOwner 20 64 2" }
+      - { type: console.command, command: "tp PermMember 19 64 2" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 20, y: 64, z: 0, type: private, ownerPlayer: PermOwner } }
+      - { type: client.command, client: member, command: "coffer help" }
+    assertions:
+      - { type: log.present, pattern: "LuckPerms v5\\.5\\.57" }
+      - { type: log.present, pattern: "Successfully enabled" }
+      - { type: client.event, client: member, event: message, pattern: "Coffer commands|/coffer" }
+
+  - id: direct
+    name: Explicit deny and grant apply without reconnecting
+    actions:
+      - { type: console.command, command: "lp user PermMember permission set coffer.command.help false" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.command\\.help to false for permmember" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.command, client: member, command: "coffer help" }
+      - { type: console.command, command: "lp user PermMember permission set coffer.command.help true" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.command\\.help to true for permmember" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.command, client: member, command: "coffer help" }
+    assertions:
+      - { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 1, operator: gte }
+      - { type: client.event, client: member, event: message, pattern: "Coffer commands|/coffer", count: 2, operator: gte }
+
+  - id: group
+    name: Hot group permission changes propagate to an online non-op player
+    actions:
+      - { type: console.command, command: "lp creategroup coffertesters" }
+      - { type: console.command, command: "lp user PermMember permission unset coffer.command.help" }
+      - { type: console.command, command: "lp group coffertesters permission set coffer.command.help false" }
+      - { type: console.command, command: "lp user PermMember parent add coffertesters" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "permmember now inherits permissions from coffertesters" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.command, client: member, command: "coffer help" }
+      - { type: console.command, command: "lp group coffertesters permission set coffer.command.help true" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.command\\.help to true for coffertesters" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.command, client: member, command: "coffer help" }
+    assertions:
+      - { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 2, operator: gte }
+      - { type: client.event, client: member, event: message, pattern: "Coffer commands|/coffer", count: 3, operator: gte }
+
+  - id: policy
+    name: The policy subcommand uses its own permission node
+    actions:
+      - { type: console.command, command: "lp user PermOwner permission set coffer.command.lock true" }
+      - { type: console.command, command: "lp user PermOwner permission set coffer.command.policy false" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.command\\.policy to false for permowner" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.command, client: owner, command: "coffer policy personal" }
+      - { type: console.command, command: "lp user PermOwner permission set coffer.command.policy true" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.command\\.policy to true for permowner" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.command, client: owner, command: "coffer policy personal" }
+    assertions:
+      - { type: client.event, client: owner, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 1, operator: gte }
+      - { type: client.event, client: owner, event: message, pattern: "policy|personal|Click a container", count: 1, operator: gte }
+
+  - id: bypass
+    name: Admin bypass can be enabled and revoked with visible and audited evidence
+    actions:
+      - { type: console.command, command: "lp user PermMember permission set coffer.admin.bypass true" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.admin\\.bypass to true for permmember" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.use_block, client: member, x: 20, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: window_open, count: 1, operator: gte }
+      - { type: client.disconnect, client: member }
+      - { type: client.reconnect, client: member }
+      - { type: console.command, command: "lp user PermMember permission set coffer.admin.bypass false" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "Set coffer\\.admin\\.bypass to false for permmember" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 20, y: 64, z: 0, player: PermMember }, as: bypass-revoked }
+      - { type: client.use_block, client: member, x: 20, y: 64, z: 0 }
+    assertions:
+      - { type: client.event, client: member, event: window_open, count: 1, operator: gte }
+      - { type: log.present, pattern: '\[audit\].*PermMember.*admin bypass' }
+      - { type: value.json, value: bypass-revoked, jsonPath: allowed, expected: false }
+      - { type: client.event, client: member, event: message, pattern: "belongs to|locked|denied" }
+
+  - id: admin
+    name: The coffer.admin node gates administrative commands independently
+    actions:
+      - { type: console.command, command: "lp user PermMember permission set coffer.command.reload true" }
+      - { type: console.command, command: "lp user PermMember permission set coffer.admin true" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: 'Set coffer\.admin to true for permmember' }
+      - { type: client.command, client: member, command: "coffer reload" }
+      - { type: console.command, command: "lp user PermMember permission set coffer.admin false" }
+      - type: wait.until
+        assertion: { type: log.present, pattern: 'Set coffer\.admin to false for permmember' }
+      - { type: client.command, client: member, command: "coffer reload" }
+    assertions:
+      - { type: client.event, client: member, event: message, pattern: "Config reloaded", count: 1, operator: gte }
+      - { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 3, operator: gte }
+
+  - id: vanilla_fallback
+    name: Without a permission provider commands default allow but admin follows vanilla op level
+    actions:
+      - { type: console.command, command: "op PermOwner" }
+      - { type: server.stop }
+      - { type: file.delete, path: mods/LuckPerms-Fabric-5.5.57.jar }
+      - { type: server.start }
+      - { type: client.command, client: member, command: "coffer help" }
+      - { type: client.command, client: member, command: "coffer reload" }
+      - { type: client.command, client: owner, command: "coffer reload" }
+    assertions:
+      - { type: client.event, client: member, event: message, pattern: "Coffer commands|/coffer", count: 4, operator: gte }
+      - { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|unknown command|Incorrect argument", count: 4, operator: gte }
+      - { type: client.event, client: owner, event: message, pattern: "Config reloaded" }
+      - { type: log.absent, pattern: "NoClassDefFoundError.*luckperms|Coffer.*permission.*failed" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions: [{ type: server.stop }]

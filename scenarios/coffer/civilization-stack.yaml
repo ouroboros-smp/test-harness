@@ -1,0 +1,229 @@
+schemaVersion: 1
+id: coffer/civilization-stack
+title: Coffer, Rooms, and Kinship principal and access interoperability
+description: Builds a real Rooms structure owned by a Kinship principal, then proves personal fallback, premises administration, ordinary-member denial, opt-in Kinship access, and restart persistence with packaged jars and real clients.
+issues: [39, 46]
+tags: [coffer, rooms, kinship, civilization, multi-client, restart]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+  rooms: { required: true, description: Packaged Rooms Fabric server jar }
+  kinship: { required: true, description: Packaged Kinship Fabric server jar }
+clients:
+  - { name: head, username: CivHead, gameMode: creative }
+  - { name: member, username: CivMember, gameMode: creative }
+server:
+  memoryMb: 2304
+  startupTimeoutSeconds: 360
+  reuseWorldOnRestart: true
+steps:
+  - id: start
+    name: Start the three packaged mods and establish a Kinship family
+    timeoutSeconds: 360
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op CivHead" }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivMember ~10 ~ ~" } }
+      - { type: client.command, client: head, command: "kinship union propose CivMember" }
+      - type: wait.until
+        assertion: { type: client.event, client: head, event: message, pattern: "union|propos" }
+      - { type: client.command, client: member, command: "kinship union accept CivHead" }
+      - type: wait.until
+        assertion: { type: client.event, client: head, event: message, pattern: "accepted your union proposal" }
+      - { type: client.command, client: head, command: "kinship union surname Interop" }
+      - type: wait.until
+        assertion: { type: client.event, client: head, event: message, pattern: "family is now known as Interop" }
+    assertions:
+      - { type: bridge.json, path: /v1/mods, jsonPath: coffer.version, expected: 1.3.0 }
+      - { type: bridge.json, path: /v1/mods, jsonPath: rooms.version, expected: 0.3.1 }
+      - { type: bridge.json, path: /v1/mods, jsonPath: kinship.version, expected: 0.4.0 }
+
+  - id: structure
+    name: Discover a physical Rooms structure attributed to the family principal
+    timeoutSeconds: 120
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-3 ~3 ~-3 ~3 ~3 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-2 ~ ~-2 ~2 ~2 ~2 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-3 ~ ~-3 ~-3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~3 ~ ~-3 ~3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-2 ~ ~-3 ~2 ~2 ~-3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-2 ~ ~3 ~2 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-1 ~ ~4 ~1 ~2 ~5 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~ ~ ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~ ~1 ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~1 ~ ~ minecraft:chest" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~-1 ~ ~1 minecraft:red_bed[part=foot,facing=east,occupied=false]" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~ ~ ~1 minecraft:red_bed[part=head,facing=east,occupied=false]" } }
+      - { type: console.command, command: "item replace entity CivHead hotbar.0 with minecraft:oak_door 1" }
+      - type: wait.until
+        assertion: { type: client.state, client: head, path: inventory, operator: contains, expected: minecraft:oak_door }
+      - { type: client.select_hotbar, client: head, slot: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.look, client: head, yaw: 0, pitch: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.place_block, client: head, relative: true, x: 0, y: -1, z: 3 }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM rooms", jsonPath: "0.count", operator: gte, expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT status, type_id FROM rooms", as: room-state }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivHead ~7 ~ ~" } }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-3 ~3 ~-3 ~3 ~3 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-2 ~ ~-2 ~2 ~2 ~2 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-3 ~ ~-3 ~-3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~3 ~ ~-3 ~3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-2 ~ ~-3 ~2 ~2 ~-3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-2 ~ ~3 ~2 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run fill ~-1 ~ ~4 ~1 ~2 ~5 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~ ~ ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~ ~1 ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~1 ~ ~ minecraft:chest" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~-1 ~ ~1 minecraft:red_bed[part=foot,facing=east,occupied=false]" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~ ~ ~1 minecraft:red_bed[part=head,facing=east,occupied=false]" } }
+      - { type: console.command, command: "item replace entity CivHead hotbar.0 with minecraft:oak_door 1" }
+      - type: wait.until
+        assertion: { type: client.state, client: head, path: inventory, operator: contains, expected: minecraft:oak_door }
+      - { type: client.select_hotbar, client: head, slot: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.look, client: head, yaw: 0, pitch: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.place_block, client: head, relative: true, x: 0, y: -1, z: 3 }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM rooms", jsonPath: "0.count", operator: gte, expected: 2 }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structures", jsonPath: "0.count", operator: gte, expected: 1 }
+      - { type: client.command, client: member, command: "structure claim" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "Only a principal administrator can claim" }
+      - { type: client.command, client: head, command: "structure claim" }
+      - type: wait.until
+        assertion: { type: client.event, client: head, event: message, pattern: "Claimed structure.*kinship:" }
+      - { type: adapter.invoke, adapter: coffer, operation: civilization, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivHead }, as: head-civilization }
+      - { type: adapter.invoke, adapter: coffer, operation: civilization, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: member-civilization }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run clone ~-10 ~-1 ~-3 ~3 ~3 ~5 ~30 ~-1 ~-3 replace force" } }
+    assertions:
+      - { type: value.json, value: head-civilization, jsonPath: principal, operator: contains, expected: "kinship:" }
+      - { type: value.json, value: head-civilization, jsonPath: structure.owner, operator: contains, expected: "kinship:" }
+      - { type: value.json, value: head-civilization, jsonPath: member, expected: true }
+      - { type: value.json, value: head-civilization, jsonPath: canAdminister, expected: true }
+      - { type: value.json, value: member-civilization, jsonPath: member, expected: true }
+      - { type: value.json, value: member-civilization, jsonPath: canAdminister, expected: false }
+      - { type: value.json, value: member-civilization, jsonPath: principal, operator: contains, expected: "kinship:" }
+
+  - id: personal
+    name: Preserve personal ownership until group access is explicitly enabled
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, type: private, ownerPlayer: CivHead }, as: personal-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivHead }, as: personal-head }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: personal-member }
+    assertions:
+      - { type: value.json, value: personal-bind, jsonPath: lock.ownershipMode, expected: personal }
+      - { type: value.json, value: personal-head, jsonPath: allowed, expected: true }
+      - { type: value.json, value: personal-member, jsonPath: allowed, expected: false }
+
+  - id: premises
+    name: Restrict premises management to the family head and opt ordinary members into access
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, ownershipMode: premises, accessScopes: [] }, as: premises-private }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivHead }, as: premises-head }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: premises-member }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivMember ~1 ~ ~-2 0 0" } }
+      - { type: client.command, client: member, command: "coffer flag hoppers off" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "Armed flag hoppers" }
+      - { type: client.break_block, client: member, relativeTo: CivHead, x: 1, y: 0, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "owner|manage|administrator|denied" }
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, ownershipMode: premises, accessScopes: [kinship_members] }, as: kinship-opt-in }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, flag: hoppers, value: false }, as: continuity-flag }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: member-opted-in }
+      - { type: client.use_block, client: member, relativeTo: CivHead, x: 1, y: 0, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: window_open, count: 1, operator: gte }
+    assertions:
+      - { type: value.json, value: premises-head, jsonPath: allowed, expected: true }
+      - { type: value.json, value: premises-member, jsonPath: allowed, expected: false }
+      - { type: value.json, value: member-opted-in, jsonPath: allowed, expected: true }
+      - { type: value.json, value: kinship-opt-in, jsonPath: lock.accessScopes, operator: contains, expected: kinship_members }
+      - { type: value.json, value: continuity-flag, jsonPath: lock.flagOverrides.hoppers, expected: false }
+
+  - id: continuity
+    name: Relocate Rooms and preserve the complete Coffer lock identity through pack and revive
+    timeoutSeconds: 180
+    actions:
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT id FROM structures LIMIT 1", as: structure-row }
+      - { type: value.extract, value: structure-row, jsonPath: "0.id", as: structure-id }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 1, y: 0, z: 0 }, as: continuity-before-lock }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 1, y: 0, z: 0 }, as: continuity-before-registry }
+      - { type: value.extract, value: continuity-before-lock, jsonPath: lock.owner, as: continuity-owner }
+      - { type: value.extract, value: continuity-before-lock, jsonPath: lock.boundAtMillis, as: continuity-bound-at }
+      - { type: value.extract, value: continuity-before-registry, jsonPath: aggregateId, as: continuity-aggregate }
+      - { type: value.extract, value: continuity-before-registry, jsonPath: revision, as: continuity-revision }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-target-before }
+      - { type: client.command, client: head, command: "room pack" }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: client.event, client: head, event: message, pattern: "Packed structure.*room\\(s\\)" }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT id, anchor_x + 40 AS revive_x, anchor_y AS revive_y, anchor_z AS revive_z FROM packed_archives WHERE id = ?", parameters: ["${structure-id}"], as: packed-row }
+      - { type: value.extract, value: packed-row, jsonPath: "0.revive_x", as: revive-x }
+      - { type: value.extract, value: packed-row, jsonPath: "0.revive_y", as: revive-y }
+      - { type: value.extract, value: packed-row, jsonPath: "0.revive_z", as: revive-z }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~1 ~ ~ air" } }
+      - { type: client.command, client: head, command: "room revive ${structure-id} ${revive-x} ${revive-y} ${revive-z}" }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: client.event, client: head, event: message, pattern: "Revived structure.*room\\(s\\).*at" }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-lock }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-registry }
+      - { type: adapter.invoke, adapter: coffer, operation: civilization, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, as: continuity-after-civilization }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, as: continuity-after-access }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivMember ~41 ~ ~-2 0 0" } }
+      - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: window_open, count: 2, operator: gte }
+    assertions:
+      - { type: value.json, value: continuity-target-before, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: continuity-after-lock, jsonPath: lock.type, expected: private }
+      - { type: value.json, value: continuity-after-lock, jsonPath: lock.owner, expected: "${continuity-owner}" }
+      - { type: value.json, value: continuity-after-lock, jsonPath: lock.boundAtMillis, expected: "${continuity-bound-at}" }
+      - { type: value.json, value: continuity-after-lock, jsonPath: lock.flagOverrides.hoppers, expected: false }
+      - { type: value.json, value: continuity-after-lock, jsonPath: lock.ownershipMode, expected: premises }
+      - { type: value.json, value: continuity-after-lock, jsonPath: lock.accessScopes, operator: contains, expected: kinship_members }
+      - { type: value.json, value: continuity-after-registry, jsonPath: aggregateId, expected: "${continuity-aggregate}" }
+      - { type: value.json, value: continuity-after-registry, jsonPath: revision, expected: "${continuity-revision}" }
+      - { type: value.json, value: continuity-after-civilization, jsonPath: structure.owner, operator: contains, expected: "kinship:" }
+      - { type: value.json, value: continuity-after-access, jsonPath: allowed, expected: true }
+
+  - id: restart
+    name: Retain the principal, structure, policy, and real access after restart
+    timeoutSeconds: 360
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: adapter.invoke, adapter: coffer, operation: civilization, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, as: restarted-civilization }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: restarted-lock }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: restarted-registry }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, as: restarted-access }
+    assertions:
+      - { type: value.json, value: restarted-civilization, jsonPath: principal, operator: contains, expected: "kinship:" }
+      - { type: value.json, value: restarted-civilization, jsonPath: structure.owner, operator: contains, expected: "kinship:" }
+      - { type: value.json, value: restarted-lock, jsonPath: lock.ownershipMode, expected: premises }
+      - { type: value.json, value: restarted-lock, jsonPath: lock.flagOverrides.hoppers, expected: false }
+      - { type: value.json, value: restarted-registry, jsonPath: aggregateId, expected: "${continuity-aggregate}" }
+      - { type: value.json, value: restarted-registry, jsonPath: revision, expected: "${continuity-revision}" }
+      - { type: value.json, value: restarted-access, jsonPath: allowed, expected: true }
+      - { type: log.absent, pattern: "wrong thread|ConcurrentModificationException|provider.*failed" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }
