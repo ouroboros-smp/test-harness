@@ -31,6 +31,8 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
     private static final String GROUP_PRINCIPAL = "kinship:family-42";
     private static final String AVAILABILITY_FILE =
             "harness-parcels-patrol.properties";
+    private static final String FIXTURES_FILE =
+            "harness-parcels-fixtures.properties";
     private final CopyOnWriteArrayList<Consumer<Map<String, Object>>> patrolSubscribers =
             new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<Map<String, Object>>> kinshipSubscribers =
@@ -39,45 +41,58 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
     private volatile boolean patrolAvailable;
     private volatile UUID kinshipMember;
     private volatile boolean kinshipSessionAvailable;
+    private volatile boolean patrolFixtureEnabled = true;
+    private volatile boolean kinshipFixtureEnabled = true;
 
     @Override
     public void onInitialize() {
         HarnessAdapters.register(this);
-        availabilityFile = FabricLoader.getInstance().getConfigDir().resolve(AVAILABILITY_FILE);
+        Path configDir = FabricLoader.getInstance().getConfigDir();
+        availabilityFile = configDir.resolve(AVAILABILITY_FILE);
         patrolAvailable = readAvailability(availabilityFile);
+        // Composed scenarios install the packaged Patrol or Kinship jar next to this
+        // adapter; the deterministic fixture for that peer must then stay unpublished
+        // so the real mod owns its ObjectShare key.
+        Path fixturesFile = configDir.resolve(FIXTURES_FILE);
+        patrolFixtureEnabled = readFixtureFlag(fixturesFile, "publish-patrol");
+        kinshipFixtureEnabled = readFixtureFlag(fixturesFile, "publish-kinship");
         var share = FabricLoader.getInstance().getObjectShare();
-        if (share.get(PATROL_V3_KEY) != null) {
-            throw new IllegalStateException("Patrol v3 provider is already published");
+        if (patrolFixtureEnabled) {
+            if (share.get(PATROL_V3_KEY) != null) {
+                throw new IllegalStateException("Patrol v3 provider is already published");
+            }
+            Function<UUID, Map<String, Object>> status =
+                    player -> ParcelsAdapterContracts.patrolStatus(player, patrolAvailable);
+            Function<Consumer<Map<String, Object>>, AutoCloseable> subscribe = listener -> {
+                patrolSubscribers.add(listener);
+                return () -> patrolSubscribers.remove(listener);
+            };
+            share.put(PATROL_V3_KEY, Map.of(
+                    "protocolVersion", 3,
+                    "eventSchemaVersion", 1,
+                    "status", status,
+                    "subscribe", subscribe));
         }
-        if (share.get(KINSHIP_V2_KEY) != null) {
-            throw new IllegalStateException("Kinship v2 provider is already published");
+        if (kinshipFixtureEnabled) {
+            if (share.get(KINSHIP_V2_KEY) != null) {
+                throw new IllegalStateException("Kinship v2 provider is already published");
+            }
+            Function<UUID, Map<String, Object>> kinshipStatus = player ->
+                    ParcelsAdapterContracts.kinshipStatus(
+                            player,
+                            kinshipMember == null ? new UUID(0L, 0L) : kinshipMember,
+                            GROUP_PRINCIPAL,
+                            kinshipSessionAvailable);
+            Function<Consumer<Map<String, Object>>, AutoCloseable> kinshipSubscribe = listener -> {
+                kinshipSubscribers.add(listener);
+                return () -> kinshipSubscribers.remove(listener);
+            };
+            share.put(KINSHIP_V2_KEY, Map.of(
+                    "protocolVersion", 2,
+                    "eventSchemaVersion", 1,
+                    "status", kinshipStatus,
+                    "subscribe", kinshipSubscribe));
         }
-        Function<UUID, Map<String, Object>> status =
-                player -> ParcelsAdapterContracts.patrolStatus(player, patrolAvailable);
-        Function<Consumer<Map<String, Object>>, AutoCloseable> subscribe = listener -> {
-            patrolSubscribers.add(listener);
-            return () -> patrolSubscribers.remove(listener);
-        };
-        share.put(PATROL_V3_KEY, Map.of(
-                "protocolVersion", 3,
-                "eventSchemaVersion", 1,
-                "status", status,
-                "subscribe", subscribe));
-        Function<UUID, Map<String, Object>> kinshipStatus = player ->
-                ParcelsAdapterContracts.kinshipStatus(
-                        player,
-                        kinshipMember == null ? new UUID(0L, 0L) : kinshipMember,
-                        GROUP_PRINCIPAL,
-                        kinshipSessionAvailable);
-        Function<Consumer<Map<String, Object>>, AutoCloseable> kinshipSubscribe = listener -> {
-            kinshipSubscribers.add(listener);
-            return () -> kinshipSubscribers.remove(listener);
-        };
-        share.put(KINSHIP_V2_KEY, Map.of(
-                "protocolVersion", 2,
-                "eventSchemaVersion", 1,
-                "status", kinshipStatus,
-                "subscribe", kinshipSubscribe));
     }
 
     @Override
@@ -191,6 +206,10 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
     }
 
     private JsonObject kinshipSession(JsonObject arguments) {
+        if (!kinshipFixtureEnabled) {
+            throw new IllegalStateException(
+                    "the Kinship fixture is disabled by " + FIXTURES_FILE);
+        }
         UUID member = ParcelsAdapterContracts.offlinePlayerId(
                 requiredString(arguments, "playerUsername"));
         boolean available = requiredBoolean(arguments, "available");
@@ -219,6 +238,10 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
     }
 
     private JsonObject patrolAvailable(JsonObject arguments) throws Exception {
+        if (!patrolFixtureEnabled) {
+            throw new IllegalStateException(
+                    "the Patrol fixture is disabled by " + FIXTURES_FILE);
+        }
         boolean available = requiredBoolean(arguments, "available");
         UUID player = ParcelsAdapterContracts.offlinePlayerId(
                 requiredString(arguments, "playerUsername"));
@@ -273,6 +296,17 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
             throw new IllegalArgumentException("player is not online: " + name);
         }
         return player;
+    }
+
+    private static boolean readFixtureFlag(Path path, String key) {
+        if (!Files.exists(path)) return true;
+        try {
+            return ParcelsAdapterContracts.fixtureFlag(
+                    Files.readAllLines(path, StandardCharsets.UTF_8), key);
+        } catch (Exception failure) {
+            throw new IllegalStateException(
+                    "failed to read harness Parcels fixture flags", failure);
+        }
     }
 
     private static boolean readAvailability(Path path) {

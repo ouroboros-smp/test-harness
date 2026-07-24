@@ -89,6 +89,29 @@ final class ParcelsAdapterContracts {
         return Map.copyOf(result);
     }
 
+    static boolean fixtureFlag(java.util.List<String> lines, String key) {
+        Objects.requireNonNull(lines, "lines");
+        Objects.requireNonNull(key, "key");
+        boolean value = true;
+        boolean seen = false;
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+            int split = trimmed.indexOf('=');
+            if (split <= 0) {
+                throw new IllegalArgumentException("malformed fixture line: " + trimmed);
+            }
+            if (!trimmed.substring(0, split).trim().equals(key)) continue;
+            if (seen) throw new IllegalArgumentException("duplicate fixture key: " + key);
+            seen = true;
+            String raw = trimmed.substring(split + 1).trim();
+            if ("true".equals(raw)) value = true;
+            else if ("false".equals(raw)) value = false;
+            else throw new IllegalArgumentException("fixture flag must be true or false: " + trimmed);
+        }
+        return value;
+    }
+
     static String legacyRoom(
             UUID roomId, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
         if (minX > maxX || minY > maxY || minZ > maxZ) {

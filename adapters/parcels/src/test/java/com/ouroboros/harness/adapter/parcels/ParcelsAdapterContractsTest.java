@@ -73,4 +73,23 @@ class ParcelsAdapterContractsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> ParcelsAdapterContracts.legacyRoom(room, 4, 2, 3, 1, 5, 6));
     }
+
+    @Test
+    void fixtureFlagsDefaultOnAndParseStrictly() {
+        assertTrue(ParcelsAdapterContracts.fixtureFlag(java.util.List.of(), "publish-patrol"));
+        assertTrue(ParcelsAdapterContracts.fixtureFlag(
+                java.util.List.of("# comment", "", "publish-kinship=true"), "publish-patrol"));
+        assertFalse(ParcelsAdapterContracts.fixtureFlag(
+                java.util.List.of("publish-patrol = false", "publish-kinship=true"),
+                "publish-patrol"));
+        assertTrue(ParcelsAdapterContracts.fixtureFlag(
+                java.util.List.of("publish-patrol=false"), "publish-kinship"));
+        assertThrows(IllegalArgumentException.class, () -> ParcelsAdapterContracts.fixtureFlag(
+                java.util.List.of("publish-patrol=yes"), "publish-patrol"));
+        assertThrows(IllegalArgumentException.class, () -> ParcelsAdapterContracts.fixtureFlag(
+                java.util.List.of("publish-patrol"), "publish-patrol"));
+        assertThrows(IllegalArgumentException.class, () -> ParcelsAdapterContracts.fixtureFlag(
+                java.util.List.of("publish-patrol=true", "publish-patrol=true"),
+                "publish-patrol"));
+    }
 }
