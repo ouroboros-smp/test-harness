@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: parcels/offline-protection
 title: Parcels released-jar defender offline protection lifecycle
-description: Proves the packaged Parcels jar preserves the disabled default, arms a direct claim for an offline defender, cancels protection synchronously on reconnect, restores durable state without exposing it while Patrol is unavailable, arms and cancels a Kinship group claim through verified-member presence, retains armed deadlines through a Kinship session-authorization drop, and supports rollback.
+description: Proves the packaged Parcels jar preserves the disabled default, arms a direct claim for an offline defender, cancels protection synchronously on reconnect, restores durable state without exposing it while Patrol is unavailable, drives a Kinship group-claim epoch through verified-member presence with the exact unseen-member horizon, retains pending deadlines through a Kinship session-authorization drop, and supports rollback.
 issues: [52]
 tags: [parcels, offline-protection, patrol-v3, kinship-v2, real-client, persistence, restart, rollback]
 artifacts:
@@ -193,61 +193,60 @@ steps:
       - { type: value.json, value: seeded-group-claim, jsonPath: memberId, expected: "2cd87c18-2bef-3de3-87e8-12f801f29421" }
 
   - id: kin_online
-    name: Keep the group claim online-raideable while a verified member defends
+    name: Prove only a verified member presence cancels the group epoch
     actions:
       - { type: server.start }
       - { type: adapter.invoke, adapter: parcels, operation: kinship-session, args: { playerUsername: ParcelOwner, available: true }, as: kin-session-on }
-      - { type: client.connect, client: owner }
       - { type: client.connect, client: raider }
       - { type: console.command, command: "setblock 4 64 4 minecraft:glass" }
       - type: wait.until
-        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, jsonPath: bound, expected: false }
+        assertion: { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT COUNT(*) AS count FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], jsonPath: "0.count", expected: 1 }
+      - { type: client.connect, client: owner }
+      - type: wait.until
+        assertion: { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT COUNT(*) AS count FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], jsonPath: "0.count", expected: 0 }
       - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, as: group-online }
     assertions:
       - { type: value.json, value: kin-session-on, jsonPath: available, expected: true }
       - { type: value.json, value: kin-session-on, jsonPath: groupPrincipal, expected: "kinship:family-42" }
+      - { type: value.json, value: group-online, jsonPath: bound, expected: false }
       - { type: value.json, value: group-online, jsonPath: break, expected: true }
       - { type: value.json, value: group-online, jsonPath: place, expected: true }
       - { type: value.json, value: group-online, jsonPath: explosion, expected: true }
 
   - id: kin_absent
-    name: Arm the group claim when the last verified member disconnects
+    name: Start the exact unseen-member horizon epoch when the member disconnects
     actions:
       - { type: client.disconnect, client: owner }
       - type: wait.until
-        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, jsonPath: bound, expected: true }
-      - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
-      - { type: wait.ticks, ticks: 10 }
-      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], as: group-armed-row }
-      - { type: snapshot.capture, name: group-armed-deadlines, value: group-armed-row }
+        assertion: { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT COUNT(*) AS count FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], jsonPath: "0.count", expected: 1 }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT arm_at - all_absent_at AS horizon, protection_eligible_at - all_absent_at AS cooldown, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], as: group-epoch-row }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], as: group-pending-row }
+      - { type: snapshot.capture, name: group-pending-deadlines, value: group-pending-row }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, as: group-pending }
     assertions:
-      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:glass }
-      - { type: value.json, value: group-armed-row, jsonPath: "0.armed", expected: 1 }
+      - { type: value.json, value: group-epoch-row, jsonPath: "0.horizon", expected: 600000 }
+      - { type: value.json, value: group-epoch-row, jsonPath: "0.cooldown", expected: 0 }
+      - { type: value.json, value: group-epoch-row, jsonPath: "0.armed", expected: 0 }
+      - { type: value.json, value: group-pending, jsonPath: break, expected: true }
 
   - id: kin_session_drop
-    name: Retain armed protection when Kinship drops session authorization
+    name: Retain the pending epoch when Kinship drops session authorization
     actions:
       - { type: adapter.invoke, adapter: parcels, operation: kinship-session, args: { playerUsername: ParcelOwner, available: false }, as: kin-session-off }
       - { type: wait.ticks, ticks: 20 }
-      - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
-      - { type: wait.ticks, ticks: 10 }
-      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, as: group-session-drop }
       - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], as: group-dropped-row }
       - { type: snapshot.capture, name: group-dropped-deadlines, value: group-dropped-row }
     assertions:
       - { type: value.json, value: kin-session-off, jsonPath: available, expected: false }
-      - { type: value.json, value: group-session-drop, jsonPath: break, expected: false }
-      - { type: value.json, value: group-session-drop, jsonPath: explosion, expected: false }
-      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:glass }
-      - { type: snapshot.equals, left: group-armed-deadlines, right: group-dropped-deadlines }
+      - { type: snapshot.equals, left: group-pending-deadlines, right: group-dropped-deadlines }
 
   - id: kin_reconnect
-    name: Cancel group protection when the verified member reconnects
+    name: Cancel the group epoch when the verified member reconnects
     actions:
       - { type: adapter.invoke, adapter: parcels, operation: kinship-session, args: { playerUsername: ParcelOwner, available: true }, as: kin-session-restored }
       - { type: client.connect, client: owner }
       - type: wait.until
-        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, jsonPath: bound, expected: false }
+        assertion: { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT COUNT(*) AS count FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], jsonPath: "0.count", expected: 0 }
       - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
       - type: wait.until
         assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:air }

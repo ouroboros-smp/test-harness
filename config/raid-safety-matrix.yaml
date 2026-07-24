@@ -21,8 +21,9 @@ foundations:
       - The disabled default preserves the prior always-protected behavior.
       - Direct-defender disconnect and reconnect deterministically arm and cancel protection.
       - Persisted deadlines remain dormant while Patrol is unavailable and recover unchanged.
-      - A verified Kinship member keeps a group claim online-raideable and arms it by disconnecting.
-      - A Kinship session-authorization drop retains the armed epoch and its exact persisted deadlines.
+      - Only a verified Kinship member's presence cancels a group-claim absence epoch; non-members online do not.
+      - A member disconnect starts an epoch pinned to the exact 600-second unseen-member horizon.
+      - A Kinship session-authorization drop retains the pending epoch and its exact persisted deadlines.
       - Rollback preserves the durable claim and restores prior protection behavior.
     limitations:
       - The Patrol v3 and Kinship v2 peers are deterministic harness code rather than packaged mods.
