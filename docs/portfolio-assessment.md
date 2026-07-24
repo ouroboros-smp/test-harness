@@ -251,7 +251,7 @@ contains only organization profile content.
   a manual release runbook. See the [Fabric build](https://github.com/ouroboros-smp/coffer/blob/1d2d7f543045131f96e21096ae59b9e28738846c/fabric/build.gradle.kts),
   [GameTest manifest](https://github.com/ouroboros-smp/coffer/blob/1d2d7f543045131f96e21096ae59b9e28738846c/fabric/src/gametest/resources/fabric.mod.json),
   and [CI](https://github.com/ouroboros-smp/coffer/blob/1d2d7f543045131f96e21096ae59b9e28738846c/.github/workflows/ci.yml).
-- The baseline harness already exercises the packaged `1.3.0` jar with two
+- The baseline harness already exercises the packaged `0.1.5` jar with two
   clients, placement/ownership/trust, lock modes, double chests, hopper and
   copper-golem overrides, API inspection, and restart persistence. It does not
   load Rooms, Homestead, LuckPerms, or WildAnimalBalancer beside Coffer.

@@ -12,13 +12,16 @@ group = rootProject.group
 
 repositories {
     mavenCentral()
+    maven("https://maven.nucleoid.xyz/") {
+        name = "nucleoid"
+    }
 }
 
 val cofferJar = providers.gradleProperty("coffer_jar")
-    .orElse("../coffer/fabric/build/libs/coffer-fabric-server-1.3.0.jar")
+    .orElse("../coffer/fabric/build/libs/coffer-fabric-server-0.1.5.jar")
     .get()
 val cofferCoreJar = providers.gradleProperty("coffer_core_jar")
-    .orElse("../coffer/core/build/libs/core-1.3.0.jar")
+    .orElse("../coffer/core/build/libs/core-0.1.5.jar")
     .get()
 
 dependencies {
@@ -28,6 +31,14 @@ dependencies {
     compileOnly(project(":bridge"))
     compileOnly(files(rootProject.file(cofferJar)))
     compileOnly(files(rootProject.file(cofferCoreJar)))
+    compileOnly("eu.pb4:common-protection-api:2.0.0")
+    testImplementation(platform("org.junit:junit-bom:5.11.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("eu.pb4:common-protection-api:2.0.0")
+    testImplementation(project(":bridge"))
+    testImplementation(files(rootProject.file(cofferJar)))
+    testImplementation(files(rootProject.file(cofferCoreJar)))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 java {
@@ -46,4 +57,8 @@ tasks.processResources {
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     options.release = 25
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

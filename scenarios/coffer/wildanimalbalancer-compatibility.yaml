@@ -1,0 +1,56 @@
+schemaVersion: 1
+id: coffer/wildanimalbalancer-compatibility
+title: Coffer and WildAnimalBalancer packaged-jar compatibility
+description: Proves both top-level and nested modules load together, WildAnimalBalancer census remains operational, and Coffer can bind and open a container in the same dedicated server.
+issues: [39]
+tags: [coffer, wildanimalbalancer, packaging, nested-mods, multi-mod]
+variables:
+  coffer-version: 0.1.5
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+  wildanimalbalancer: { required: true, description: Packaged WildAnimalBalancer Fabric server jar }
+clients:
+  - { name: owner, username: CompatOwner, gameMode: creative }
+server:
+  memoryMb: 2048
+  startupTimeoutSeconds: 360
+steps:
+  - id: start
+    name: Start both packaged mods without a nested-module collision
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op CompatOwner" }
+      - { type: console.command, command: "forceload add -16 -16 16 16" }
+      - { type: console.command, command: "fill -2 63 -2 2 63 2 minecraft:stone" }
+      - { type: console.command, command: "setblock 0 64 0 minecraft:chest" }
+    assertions:
+      - { type: bridge.json, path: /v1/mods, jsonPath: coffer.version, expected: "${coffer-version}" }
+      - { type: bridge.json, path: /v1/mods, jsonPath: coffer-core.version, expected: "${coffer-version}" }
+      - { type: bridge.json, path: /v1/mods, jsonPath: wildanimalbalancer.version, expected: 2.0.2 }
+      - { type: bridge.json, path: /v1/mods, jsonPath: wildanimalbalancer-core.version, expected: 2.0.2 }
+      - { type: log.absent, pattern: "Duplicate.*mod|duplicate.*id|Mod resolution encountered an incompatible mod set" }
+
+  - id: behavior
+    name: Exercise each mod through its supported live boundary
+    actions:
+      - { type: client.command, client: owner, command: "wildlife status" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: console.command, command: "tp CompatOwner 0 64 2 180 0" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 64, z: 0, type: private, ownerPlayer: CompatOwner }, as: compat-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: CompatOwner }, as: compat-access }
+      - { type: client.use_block, client: owner, x: 0, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: owner, event: window_open, count: 1, operator: gte }
+    assertions:
+      - { type: value.json, value: compat-bind, jsonPath: updated, expected: true }
+      - { type: value.json, value: compat-access, jsonPath: allowed, expected: true }
+      - { type: client.event, client: owner, event: message, pattern: "Censuses:|Spawned:" }
+      - { type: log.present, pattern: "WildAnimalBalancer running" }
+      - { type: log.present, pattern: "Coffer Fabric initialized" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

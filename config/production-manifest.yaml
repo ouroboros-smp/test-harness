@@ -16,8 +16,8 @@ mods:
     owner: first-party
     bucket: first-party
     enabled: true
-    version: 1.3.0
-    file: coffer-fabric-server-1.3.0.jar
+    version: 0.1.5
+    file: coffer-fabric-server-0.1.5.jar
     repository: https://github.com/ouroboros-smp/coffer
     portfolioTarget: coffer
     obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]

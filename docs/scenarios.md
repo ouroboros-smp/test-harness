@@ -46,8 +46,8 @@ steps:
 | Lifecycle | `server.start`, `server.stop`, `server.restart` |
 | Client | `client.connect`, `disconnect`, `reconnect`, `chat`, `command`, `move`, `look`, `select_hotbar`, `use_block`, `place_block`, `break_block`, `attack`, `respawn`, `click_window` |
 | Control | `console.command`, `bridge.request`, `http.request` |
-| Time | `wait.duration`, `wait.ticks`, `wait.event` |
-| State | `file.write`, `sqlite.query`, `snapshot.capture` |
+| Time | `wait.duration`, `wait.ticks`, `wait.event`, `wait.until` |
+| State | `file.write`, `file.delete`, `sqlite.query`, `value.extract`, `snapshot.capture` |
 | Load | `soak.run` with a repeatable nested `behavior` action list |
 | Extension | `adapter.invoke` with nested standard actions or a registered bridge adapter |
 | Service | `service.start`, `service.exec`, `service.stop` manage isolated Docker dependencies and retain logs |
@@ -66,13 +66,39 @@ with repeatable `--variable NAME=VALUE` flags.
 | Client | `client.event`, `client.inventory`, `client.state`, `client.window` |
 | Structured server state | `bridge.json`, `sqlite.query`, `value.json` |
 | Persistence | `snapshot.equals` |
-| Performance | `metric.threshold` |
+| Performance | `metric.threshold`, `performance.threshold` |
 | Artifacts | `file.exists`, `file.json`, `command.output` |
 | Extension | `adapter.assert` |
 
 Comparison operators are `equals`, `not_equals`, `contains`, `not_contains`, `matches`, `gte`,
 `gt`, `lte`, `lt`, `exists`, and `absent`. JSON paths are dot-separated and may
 address array indices, for example `inventory.38.item`.
+
+Use `wait.until` when a read-only assertion observes an eventually consistent
+state. It contains exactly one standard assertion, defaults to a 10 second
+timeout and 100 millisecond polling interval, retries assertion failures only,
+and includes the last observed failure in timeout evidence.
+
+```yaml
+- type: wait.until
+  assertion:
+    type: bridge.json
+    path: /v1/health
+    jsonPath: ready
+    expected: true
+```
+
+After `soak.run`, use `performance.threshold` with `mspt.p50`, `mspt.p95`,
+`mspt.p99`, or `mspt.max`. The report always retains p99 even when p95 is the
+release gate.
+
+`console.command` waits for one completed server tick when `waitFor` is omitted,
+so the following action observes command side effects deterministically. Supply
+`waitFor` when a specific log line is the stronger completion signal.
+
+`client.place_block` expects the target block state to change by default. Set
+`expectChange: false` when the scenario is proving that placement is refused;
+the action then fails if the block state changes.
 
 ## Design rules
 

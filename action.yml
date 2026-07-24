@@ -11,6 +11,10 @@ inputs:
     description: Optional newline-separated runtime dependency jar paths.
     required: false
     default: ""
+  named-artifacts:
+    description: Optional newline-separated name=path artifact entries confined to the workspace.
+    required: false
+    default: ""
   minecraft-version:
     description: Minecraft version pin.
     required: false
@@ -89,6 +93,7 @@ runs:
         INPUT_SCENARIO: ${{ inputs.scenario }}
         INPUT_CONSUMER: ${{ inputs.consumer-jar }}
         INPUT_DEPENDENCIES: ${{ inputs.runtime-dependency-jars }}
+        INPUT_NAMED_ARTIFACTS: ${{ inputs.named-artifacts }}
         INPUT_OUTPUT: ${{ inputs.output-directory }}
         INPUT_MINECRAFT: ${{ inputs.minecraft-version }}
         INPUT_LOADER: ${{ inputs.loader-version }}
@@ -108,6 +113,23 @@ runs:
           args+=(--artifact "dependency_${index}=$dependency")
           index=$((index + 1))
         done <<< "$INPUT_DEPENDENCIES"
+        named_file="$output/.named-artifacts"
+        if ! node --input-type=module -e '
+          import { parseNamedArtifacts } from "./dist/action-inputs.js";
+          const artifacts = await parseNamedArtifacts(
+            process.env.INPUT_NAMED_ARTIFACTS ?? "",
+            process.env.GITHUB_WORKSPACE ?? process.cwd(),
+          );
+          for (const artifact of artifacts) console.log(`${artifact.name}=${artifact.path}`);
+        ' > "$named_file"; then
+          rm -f "$named_file"
+          exit 1
+        fi
+        while IFS= read -r artifact; do
+          [[ -z "$artifact" ]] && continue
+          args+=(--artifact "$artifact")
+        done < "$named_file"
+        rm -f "$named_file"
         node dist/cli.js "${args[@]}"
         status=$?
         if [[ $status -eq 0 ]]; then passed=true; else passed=false; fi

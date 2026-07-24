@@ -1,0 +1,119 @@
+schemaVersion: 1
+id: coffer/metrics-exporter
+title: Coffer counters on the packaged FabricExporter endpoint
+description: Scrapes exact canonical Coffer metric names before mutation, after bind and denial, and after restart.
+issues: [44]
+tags: [coffer, metrics, prometheus, restart]
+ports: [metrics]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+  fabric_exporter:
+    required: true
+    description: FabricExporter 1.0.22
+    url: https://api.modrinth.com/maven/maven/modrinth/fabricexporter/1.0.22/fabricexporter-1.0.22.jar
+    sha256: de42f12b98e115c6d1b1813c726222a1173c9f85fb0d398425fb99d5d99493fc
+clients:
+  - { name: owner, username: MetricOwner, gameMode: creative }
+  - { name: stranger, username: MetricStranger }
+server:
+  memoryMb: 2048
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+steps:
+  - id: configure
+    name: Configure the one existing metrics endpoint on an isolated port
+    actions:
+      - type: file.write
+        path: config/exporter.properties
+        content: "server-port=${port.metrics}\nupdate-interval=100\nuse-spark=false\nexport-default-jvm-metrics=false\nenable-containers-bound-total=true\nenable-access-denied-total=true\n"
+
+  - id: baseline
+    name: Start and capture exact zero-value canonical counters
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 32 32" }
+      - { type: console.command, command: "fill 22 63 -2 26 63 3 minecraft:stone" }
+      - { type: console.command, command: "setblock 24 64 0 minecraft:chest" }
+      - { type: console.command, command: "tp MetricStranger 24 64 2" }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: baseline-scrape }
+    assertions:
+      - { type: log.present, pattern: "Registering Coffer application metrics with FabricExporter" }
+      - { type: value.json, value: baseline-scrape, jsonPath: status, expected: 200 }
+      - { type: value.json, value: baseline-scrape, jsonPath: body, operator: contains, expected: "coffer_containers_bound_total 0.0" }
+      - { type: value.json, value: baseline-scrape, jsonPath: body, operator: contains, expected: "coffer_access_denied_total 0.0" }
+      - { type: value.json, value: baseline-scrape, jsonPath: body, operator: not_contains, expected: "ouro_coffer_" }
+
+  - id: increments
+    name: Bind and one visible denial increment once while read probes remain side-effect free
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 24, y: 64, z: 0, type: private, ownerPlayer: MetricOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: protection, args: { x: 24, y: 64, z: 0, player: MetricStranger } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 24, y: 64, z: 0, player: MetricStranger } }
+      - { type: client.use_block, client: stranger, x: 24, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: stranger, event: message, pattern: "belongs to|locked|denied" }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: incremented-scrape }
+    assertions:
+      - { type: client.event, client: stranger, event: message, pattern: "belongs to|locked|denied" }
+      - { type: value.json, value: incremented-scrape, jsonPath: body, operator: contains, expected: "coffer_containers_bound_total 1.0" }
+      - { type: value.json, value: incremented-scrape, jsonPath: body, operator: contains, expected: "coffer_access_denied_total 1.0" }
+
+  - id: mutation_paths
+    name: Placement and command binding increment exactly while blocked automation does not
+    actions:
+      - { type: console.command, command: "setblock 24 63 0 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "item replace block 24 64 0 container.0 with minecraft:diamond 1" }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 24, y: 64, z: 0, flag: hoppers, value: false } }
+      - { type: wait.ticks, ticks: 16 }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: automation-scrape }
+      - { type: console.command, command: "fill 26 63 -1 30 63 1 minecraft:stone" }
+      - { type: console.command, command: "tp MetricOwner 26 64 2" }
+      - { type: console.command, command: "give MetricOwner minecraft:chest 2" }
+      - { type: client.select_hotbar, client: owner, slot: 0 }
+      - { type: client.place_block, client: owner, x: 27, y: 63, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=27&y=64&z=0", jsonPath: block, expected: "minecraft:chest" }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: placement-scrape }
+      - { type: console.command, command: "setblock 29 64 0 minecraft:chest" }
+      - { type: console.command, command: "tp MetricOwner 29.5 64 2.5 0 -90" }
+      - { type: client.look, client: owner, yaw: 0, pitch: -90 }
+      - { type: client.command, client: owner, command: "coffer lock private" }
+      - { type: client.break_block, client: owner, x: 29, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: owner, event: message, pattern: "Set this container to private" }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: command-scrape }
+    assertions:
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=24&y=64&z=0", jsonPath: snbt, operator: contains, expected: "minecraft:diamond" }
+      - { type: value.json, value: automation-scrape, jsonPath: body, operator: contains, expected: "coffer_containers_bound_total 1.0" }
+      - { type: value.json, value: automation-scrape, jsonPath: body, operator: contains, expected: "coffer_access_denied_total 1.0" }
+      - { type: value.json, value: placement-scrape, jsonPath: body, operator: contains, expected: "coffer_containers_bound_total 2.0" }
+      - { type: value.json, value: command-scrape, jsonPath: body, operator: contains, expected: "coffer_containers_bound_total 3.0" }
+      - { type: value.json, value: command-scrape, jsonPath: body, operator: contains, expected: "coffer_access_denied_total 1.0" }
+
+  - id: restart
+    name: Restart initializes compatible collectors without duplicate registration
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: http.request, url: "http://127.0.0.1:${port.metrics}/metrics", as: restarted-scrape }
+    assertions:
+      - { type: value.json, value: restarted-scrape, jsonPath: status, expected: 200 }
+      - { type: value.json, value: restarted-scrape, jsonPath: body, operator: contains, expected: "coffer_containers_bound_total 0.0" }
+      - { type: value.json, value: restarted-scrape, jsonPath: body, operator: contains, expected: "coffer_access_denied_total 0.0" }
+      - { type: log.absent, pattern: "duplicate.*collector|already registered|incompatible collector" }
+
+  - id: without_exporter
+    name: Coffer starts cleanly when the optional metrics exporter is absent
+    actions:
+      - { type: server.stop }
+      - { type: file.delete, path: mods/fabricexporter-1.0.22.jar }
+      - { type: server.start }
+    assertions:
+      - { type: log.present, pattern: "Coffer Fabric initialized" }
+      - { type: log.absent, pattern: "Coffer.*(?:failed|exception).*metric|NoClassDefFoundError.*fabricexporter" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions: [{ type: server.stop }]

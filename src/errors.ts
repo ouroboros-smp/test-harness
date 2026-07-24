@@ -18,6 +18,9 @@ export class TimeoutError extends HarnessError {
 }
 
 export function errorMessage(error: unknown): string {
+  if (error instanceof HarnessError && error.details !== undefined) {
+    return `${error.stack ?? error.message}\nDetails: ${JSON.stringify(error.details)}`;
+  }
   if (error instanceof Error) return error.stack ?? error.message;
   return String(error);
 }

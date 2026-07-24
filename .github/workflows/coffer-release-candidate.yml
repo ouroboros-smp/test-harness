@@ -1,0 +1,159 @@
+name: Coffer release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      coffer-ref:
+        description: Coffer commit, tag, or branch to verify
+        required: true
+        default: main
+      coffer-version:
+        description: Fabric metadata version expected from the candidate
+        required: true
+        default: 0.1.5
+
+permissions:
+  contents: read
+
+jobs:
+  build-candidate:
+    runs-on: [self-hosted, crucible-pc]
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Check out candidate Coffer
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/coffer
+          ref: ${{ inputs.coffer-ref }}
+          path: consumer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - name: Check out Rooms
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/rooms-and-structures
+          ref: eb382d7254b01939cd90ed9bf4bbecd5cf400c10 # v0.3.1
+          path: rooms
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - name: Check out Kinship
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/kinship
+          ref: 97cecfa6a78a5b4a9dd34bc6f0eda43e62af972a # plugin-v0.4.0
+          path: kinship
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - name: Check out WildAnimalBalancer
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/WildAnimalBalancer
+          ref: b2c26f64f2a4c7560242bbfd35b1391685d9660e # v2.0.2
+          path: wildanimalbalancer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with: { node-version: "24", cache: npm }
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with: { distribution: temurin, java-version: "25" }
+      - name: Install X virtual framebuffer
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends xvfb
+          fi
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+      - name: Build harness, bridge, and client
+        run: |
+          npm ci
+          npm run build:all
+      - name: Build candidate and interoperability artifacts
+        run: |
+          xvfb-run --auto-servernum ./consumer/gradlew -p consumer build coverageReport prepareReleaseArtifacts --no-daemon
+          mkdir -p candidate
+          mapfile -t coffer_jars < <(find consumer/fabric/build/libs -maxdepth 1 -type f -name 'coffer-fabric-server-*.jar' | sort)
+          mapfile -t coffer_core_jars < <(find consumer/core/build/libs -maxdepth 1 -type f -name 'core-*.jar' | sort)
+          test "${#coffer_jars[@]}" -eq 1
+          test "${#coffer_core_jars[@]}" -eq 1
+          cp "${coffer_jars[0]}" candidate/coffer-fabric-server.jar
+          cp "${coffer_core_jars[0]}" candidate/coffer-core.jar
+          ./rooms/gradlew -p rooms :platform:fabric:build --no-daemon
+          ./kinship/gradlew -p kinship :minecraft-core:build :minecraft-fabric:build --no-daemon
+          ./wildanimalbalancer/gradlew -p wildanimalbalancer :core:build :fabric:build --no-daemon
+          ./gradlew \
+            -Pcoffer_jar=candidate/coffer-fabric-server.jar \
+            -Pcoffer_core_jar=candidate/coffer-core.jar \
+            :adapters:coffer:build --no-daemon
+      - name: Record candidate checksums
+        run: |
+          mkdir -p candidate-evidence
+          find candidate consumer/build/release adapters/coffer/build/libs rooms/platform/fabric/build/libs \
+            kinship/minecraft-fabric/build/libs wildanimalbalancer/fabric/build/libs \
+            -maxdepth 1 -type f -name '*.jar' -print0 | sort -z | xargs -0 sha256sum > candidate-evidence/checksums.sha256
+          git -C consumer rev-parse HEAD > candidate-evidence/coffer-commit.txt
+          git -C rooms rev-parse HEAD > candidate-evidence/rooms-commit.txt
+          git -C kinship rev-parse HEAD > candidate-evidence/kinship-commit.txt
+          git -C wildanimalbalancer rev-parse HEAD > candidate-evidence/wildanimalbalancer-commit.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coffer-release-candidate-build
+          path: |
+            candidate/coffer-fabric-server.jar
+            adapters/coffer/build/libs/ouro-harness-coffer-adapter-1.0.0.jar
+            bridge/build/libs/ouro-harness-bridge-1.0.0.jar
+            client/target/debug/ouro-harness-client
+            rooms/platform/fabric/build/libs/rooms-fabric-0.3.1.jar
+            kinship/minecraft-fabric/build/libs/kinship-fabric-0.4.0.jar
+            wildanimalbalancer/fabric/build/libs/WildAnimalBalancer-fabric-2.0.2.jar
+            consumer/fabric/build/reports/jacoco/jacocoMergedReport/**
+            candidate-evidence/**
+          if-no-files-found: error
+
+  packaged-scenarios:
+    needs: build-candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: access-persistence, extra: "" }
+          - { id: double-chest-lifecycle, extra: "" }
+          - { id: automation-extraction, extra: "" }
+          - { id: api-protection-packaging, extra: "" }
+          - { id: permissions-luckperms, extra: "" }
+          - { id: metrics-exporter, extra: "" }
+          - id: civilization-stack
+            extra: "--artifact rooms=rooms/platform/fabric/build/libs/rooms-fabric-0.3.1.jar --artifact kinship=kinship/minecraft-fabric/build/libs/kinship-fabric-0.4.0.jar"
+          - id: wildanimalbalancer-compatibility
+            extra: "--artifact wildanimalbalancer=wildanimalbalancer/fabric/build/libs/WildAnimalBalancer-fabric-2.0.2.jar"
+    runs-on: [self-hosted, crucible-pc]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with: { node-version: "24", cache: npm }
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with: { distribution: temurin, java-version: "25" }
+      - run: npm ci && npm run build
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with: { name: coffer-release-candidate-build, path: . }
+      - run: chmod +x client/target/debug/ouro-harness-client
+      - name: Run packaged release scenario
+        env:
+          COFFER_VERSION: ${{ inputs.coffer-version }}
+        run: >-
+          node dist/cli.js run coffer/${{ matrix.id }}
+          --artifact consumer=candidate/coffer-fabric-server.jar
+          --artifact coffer_adapter=adapters/coffer/build/libs/ouro-harness-coffer-adapter-1.0.0.jar
+          --variable "coffer-version=$COFFER_VERSION"
+          ${{ matrix.extra }}
+          --output artifacts/coffer-${{ matrix.id }}
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coffer-release-${{ matrix.id }}
+          path: artifacts/coffer-${{ matrix.id }}
+          if-no-files-found: error
