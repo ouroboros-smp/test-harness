@@ -102,7 +102,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ouroboros-smp/parcels
-          ref: e8d075baeeeaeb0d3b2e1ca1907d6789de06b183
+          ref: 3acc352b036db133cdfd1976f5caef06ca6ad091
           path: consumer
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
           persist-credentials: false
@@ -131,7 +131,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force artifacts/parcels-offline-protection | Out-Null
-          $expected = "e8d075baeeeaeb0d3b2e1ca1907d6789de06b183"
+          $expected = "3acc352b036db133cdfd1976f5caef06ca6ad091"
           $actual = (git -C consumer rev-parse HEAD).Trim()
           if ($actual -ne $expected) { throw "Parcels checkout drift: expected $expected, got $actual" }
           $provenance = [ordered]@{
