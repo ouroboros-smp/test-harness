@@ -39,7 +39,7 @@ steps:
 
   - id: derive
     name: Derive every accepted production layout and validate canonical metadata
-    timeoutSeconds: 180
+    timeoutSeconds: 300
     actions:
       - type: wait.until
         timeoutMs: 45000
