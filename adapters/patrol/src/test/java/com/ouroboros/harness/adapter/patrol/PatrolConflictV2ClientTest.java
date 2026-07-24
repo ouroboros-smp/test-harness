@@ -72,6 +72,25 @@ class PatrolConflictV2ClientTest {
     }
 
     @Test
+    void durabilityOutageReturnsAnUnavailableReconciliationInsteadOfThrowing() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        PatrolConflictV2Client client = new PatrolConflictV2Client(() -> protocol(
+                Map.of(
+                        "available", false,
+                        "playerId", AGGRESSOR.toString(),
+                        "principal", "player:" + AGGRESSOR,
+                        "aggregateId", AGGRESSOR.toString()),
+                List.of(),
+                subscriber));
+
+        JsonObject reconciliation = client.reconcile(AGGRESSOR, 0L);
+
+        assertFalse(reconciliation.get("available").getAsBoolean());
+        assertEquals("status_unavailable", reconciliation.get("error").getAsString());
+        assertFalse(reconciliation.getAsJsonObject("checks").get("valid").getAsBoolean());
+    }
+
+    @Test
     void rejectsIdentityMismatchesAndNonMonotonicReplay() {
         AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
         Map<String, Object> mismatched = status(2L);

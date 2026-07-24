@@ -108,22 +108,29 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         JsonObject result = metadata();
         result.addProperty("installed",
                 booleanValue(statusResult, "installed") && booleanValue(replayResult, "installed"));
+        boolean statusAvailable = false;
         if (statusResult.has("status")) {
-            result.add("status", statusResult.getAsJsonObject("status").deepCopy());
+            JsonObject status = statusResult.getAsJsonObject("status");
+            result.add("status", status.deepCopy());
+            statusAvailable = booleanValue(status, "available");
         }
+        result.addProperty("available", statusAvailable);
         if (replayResult.has("events")) {
             result.add("events", replayResult.getAsJsonArray("events").deepCopy());
             result.addProperty("count", replayResult.get("count").getAsInt());
         }
         JsonObject checks = replayResult.has("checks")
                 ? replayResult.getAsJsonObject("checks").deepCopy() : emptyChecks();
-        long statusRevision = result.has("status")
-                ? result.getAsJsonObject("status").get("revision").getAsLong() : -1L;
+        JsonObject status = result.has("status") ? result.getAsJsonObject("status") : null;
+        long statusRevision = status != null && status.has("revision")
+                && status.get("revision").isJsonPrimitive()
+                && status.get("revision").getAsJsonPrimitive().isNumber()
+                ? status.get("revision").getAsLong() : -1L;
         long maximumReplayRevision = checks.get("maximumRevision").getAsLong();
         boolean covers = statusRevision >= maximumReplayRevision;
         checks.addProperty("statusCoversReplay", covers);
         checks.addProperty("valid",
-                !statusResult.has("error") && !replayResult.has("error")
+                statusAvailable && !statusResult.has("error") && !replayResult.has("error")
                         && covers
                         && checks.get("strictlyIncreasing").getAsBoolean()
                         && checks.get("eventIdsUnique").getAsBoolean()
@@ -136,6 +143,10 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         } else if (replayResult.has("error")) {
             result.addProperty("error", replayResult.get("error").getAsString());
             result.addProperty("detail", replayResult.get("detail").getAsString());
+        } else if (!statusAvailable) {
+            result.addProperty("error", "status_unavailable");
+            result.addProperty("detail",
+                    "Patrol status is not durably available for reconciliation");
         }
         return result;
     }
