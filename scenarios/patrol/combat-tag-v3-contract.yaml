@@ -1,0 +1,172 @@
+schemaVersion: 1
+id: patrol/combat-tag-v3-contract
+title: Patrol packaged combat-tag-v3 symmetric lifecycle contract
+description: Uses two real protocol clients and the harness-only ObjectShare adapter to prove atomic symmetric tags, refresh, disconnect and restart retention, death clear, and exact expiry.
+issues: [37]
+tags: [fabric, minecraft-26.2, patrol, multi-client, pvp, public-api, persistence, restart, combat-tag]
+artifacts:
+  patrol: { required: true, description: Packaged Patrol Fabric server jar }
+  patrol_adapter: { required: true, description: Harness-only conflict-v3 ObjectShare adapter jar }
+clients:
+  - { name: aggressor, username: PatrolAggressor }
+  - { name: victim, username: PatrolVictim }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+  properties:
+    pvp: true
+    difficulty: peaceful
+steps:
+  - id: start
+    name: Start two real clients with the strict conflict-v3 protocol available
+    actions:
+      - { type: server.start }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-protocol, as: initial-protocol }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: initial-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolVictim }, as: initial-victim }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-clear-events, as: initial-events }
+    assertions:
+      - { type: log.present, pattern: "Patrol Fabric enabled" }
+      - { type: value.json, value: initial-protocol, jsonPath: installed, expected: true }
+      - { type: value.json, value: initial-protocol, jsonPath: subscribed, expected: true }
+      - { type: value.json, value: initial-protocol, jsonPath: protocolVersion, expected: 3 }
+      - { type: value.json, value: initial-protocol, jsonPath: eventSchemaVersion, expected: 2 }
+      - { type: value.json, value: initial-aggressor, jsonPath: status.revision, expected: 0 }
+      - { type: value.json, value: initial-aggressor, jsonPath: status.lastParticipationAt, expected: 0 }
+      - { type: value.json, value: initial-aggressor, jsonPath: status.taggedUntil, expected: 0 }
+      - { type: value.json, value: initial-victim, jsonPath: status.revision, expected: 0 }
+      - { type: value.json, value: initial-events, jsonPath: errors.0, operator: absent }
+
+  - id: symmetric_tag
+    name: Persist both tag records before the real hit and publish ordered v3 evidence
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolAggressor run tp PatrolVictim ~1 ~ ~" } }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.attack, client: aggressor, target: PatrolVictim }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: first-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolVictim }, as: first-victim }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-replay, args: { player: PatrolAggressor, afterRevision: 0 }, as: first-aggressor-replay }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-replay, args: { player: PatrolVictim, afterRevision: 0 }, as: first-victim-replay }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-events, as: first-live-events }
+      - { type: value.extract, value: first-aggressor, jsonPath: status.lastParticipationAt, as: first-participation-at }
+      - { type: value.extract, value: first-aggressor, jsonPath: status.taggedUntil, as: first-tagged-until }
+    assertions:
+      - { type: value.json, value: first-aggressor, jsonPath: status.revision, expected: 3 }
+      - { type: value.json, value: first-aggressor, jsonPath: status.participationRole, expected: attacker }
+      - { type: value.json, value: first-aggressor, jsonPath: status.participationCounterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
+      - { type: value.json, value: first-aggressor, jsonPath: status.taggedUntil, operator: gt, expected: "${first-participation-at}" }
+      - { type: value.json, value: first-victim, jsonPath: status.revision, expected: 2 }
+      - { type: value.json, value: first-victim, jsonPath: status.participationRole, expected: victim }
+      - { type: value.json, value: first-victim, jsonPath: status.participationCounterparty, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
+      - { type: value.json, value: first-victim, jsonPath: status.taggedUntil, expected: "${first-tagged-until}" }
+      - { type: value.json, value: first-aggressor-replay, jsonPath: count, expected: 2 }
+      - { type: value.json, value: first-aggressor-replay, jsonPath: events.0.action, expected: combat_tagged }
+      - { type: value.json, value: first-aggressor-replay, jsonPath: events.0.aggregateRevision, expected: 1 }
+      - { type: value.json, value: first-aggressor-replay, jsonPath: events.1.action, expected: hostile }
+      - { type: value.json, value: first-aggressor-replay, jsonPath: events.1.aggregateRevision, expected: 3 }
+      - { type: value.json, value: first-victim-replay, jsonPath: count, expected: 1 }
+      - { type: value.json, value: first-victim-replay, jsonPath: events.0.data.participantRole, expected: victim }
+      - { type: value.json, value: first-victim-replay, jsonPath: events.0.actor, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
+      - { type: value.json, value: first-live-events, jsonPath: count, expected: 3 }
+      - { type: value.json, value: first-live-events, jsonPath: events.0.action, expected: combat_tagged }
+      - { type: value.json, value: first-live-events, jsonPath: events.1.action, expected: combat_tagged }
+      - { type: value.json, value: first-live-events, jsonPath: events.2.action, expected: hostile }
+      - { type: value.json, value: first-live-events, jsonPath: errors.0, operator: absent }
+
+  - id: refresh_disconnect
+    name: Refresh the absolute shared deadline and retain it while the victim disconnects
+    actions:
+      - { type: wait.duration, seconds: 1 }
+      - { type: client.attack, client: aggressor, target: PatrolVictim }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: refreshed-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolVictim }, as: refreshed-victim }
+      - { type: value.extract, value: refreshed-aggressor, jsonPath: status.taggedUntil, as: refreshed-tagged-until }
+      - { type: client.disconnect, client: victim }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: disconnected-aggressor }
+      - { type: client.reconnect, client: victim }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolVictim }, as: reconnected-victim }
+    assertions:
+      - { type: value.json, value: refreshed-aggressor, jsonPath: status.revision, expected: 6 }
+      - { type: value.json, value: refreshed-aggressor, jsonPath: status.taggedUntil, operator: gt, expected: "${first-tagged-until}" }
+      - { type: value.json, value: refreshed-victim, jsonPath: status.taggedUntil, expected: "${refreshed-tagged-until}" }
+      - { type: value.json, value: disconnected-aggressor, jsonPath: status.taggedUntil, expected: "${refreshed-tagged-until}" }
+      - { type: value.json, value: reconnected-victim, jsonPath: status.taggedUntil, expected: "${refreshed-tagged-until}" }
+      - { type: value.json, value: reconnected-victim, jsonPath: status.participationRole, expected: victim }
+
+  - id: restart
+    name: Restore the same active tag deadline and replay after a clean restart
+    timeoutSeconds: 360
+    actions:
+      - { type: adapter.invoke, adapter: patrol, operation: combat-reconcile, args: { player: PatrolAggressor, afterRevision: 0 }, as: pre-restart-aggressor }
+      - { type: snapshot.capture, name: pre-restart-aggressor-events, value: pre-restart-aggressor }
+      - { type: server.restart, reconnect: true }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-reconcile, args: { player: PatrolAggressor, afterRevision: 0 }, as: post-restart-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolVictim }, as: post-restart-victim }
+      - { type: snapshot.capture, name: post-restart-aggressor-events, value: post-restart-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-clear-events, as: restarted-events }
+    assertions:
+      - { type: value.json, value: post-restart-aggressor, jsonPath: status.taggedUntil, expected: "${refreshed-tagged-until}" }
+      - { type: value.json, value: post-restart-victim, jsonPath: status.taggedUntil, expected: "${refreshed-tagged-until}" }
+      - { type: value.json, value: post-restart-aggressor, jsonPath: checks.valid, expected: true }
+      - { type: snapshot.equals, left: pre-restart-aggressor-events, right: post-restart-aggressor-events, path: events }
+      - { type: value.json, value: restarted-events, jsonPath: count, expected: 0 }
+
+  - id: death_clear
+    name: Clear only the dead victim while retaining the refreshed attacker tag
+    actions:
+      - { type: client.attack, client: aggressor, target: PatrolVictim }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: pre-death-aggressor }
+      - { type: value.extract, value: pre-death-aggressor, jsonPath: status.taggedUntil, as: death-tagged-until }
+      - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: PatrolVictim, amount: 1000, type: minecraft:generic } }
+      - { type: wait.ticks, ticks: 1 }
+      - { type: client.respawn, client: victim }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: post-death-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolVictim }, as: post-death-victim }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-events, as: death-live-events }
+    assertions:
+      - { type: value.json, value: pre-death-aggressor, jsonPath: status.revision, expected: 9 }
+      - { type: value.json, value: post-death-aggressor, jsonPath: status.revision, expected: 11 }
+      - { type: value.json, value: post-death-aggressor, jsonPath: status.taggedUntil, expected: "${death-tagged-until}" }
+      - { type: value.json, value: post-death-victim, jsonPath: status.revision, expected: 10 }
+      - { type: value.json, value: post-death-victim, jsonPath: status.lastParticipationAt, expected: 0 }
+      - { type: value.json, value: post-death-victim, jsonPath: status.taggedUntil, expected: 0 }
+      - { type: value.json, value: death-live-events, jsonPath: count, expected: 5 }
+      - { type: value.json, value: death-live-events, jsonPath: events.3.action, expected: combat_tag_cleared }
+      - { type: value.json, value: death-live-events, jsonPath: events.3.actor, operator: absent }
+      - { type: value.json, value: death-live-events, jsonPath: events.3.data.participantRole, expected: system }
+      - { type: value.json, value: death-live-events, jsonPath: events.4.action, expected: hostile }
+
+  - id: expiry
+    name: Expire the remaining attacker tag at its absolute deadline
+    timeoutSeconds: 50
+    actions:
+      - { type: wait.duration, seconds: 32 }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAggressor }, as: expired-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-replay, args: { player: PatrolAggressor, afterRevision: 11 }, as: expiry-replay }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-events, as: expiry-live-events }
+    assertions:
+      - { type: value.json, value: expired-aggressor, jsonPath: status.revision, expected: 12 }
+      - { type: value.json, value: expired-aggressor, jsonPath: status.lastParticipationAt, expected: 0 }
+      - { type: value.json, value: expired-aggressor, jsonPath: status.taggedUntil, expected: 0 }
+      - { type: value.json, value: expiry-replay, jsonPath: count, expected: 1 }
+      - { type: value.json, value: expiry-replay, jsonPath: events.0.action, expected: combat_tag_expired }
+      - { type: value.json, value: expiry-replay, jsonPath: events.0.actor, operator: absent }
+      - { type: value.json, value: expiry-live-events, jsonPath: count, expected: 6 }
+      - { type: value.json, value: expiry-live-events, jsonPath: events.5.action, expected: combat_tag_expired }
+      - { type: value.json, value: expiry-live-events, jsonPath: errors.0, operator: absent }
+      - { type: log.absent, pattern: "Patrol conflict listener failed|Patrol conflict persistence listener failed|Patrol scheduled task failed" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

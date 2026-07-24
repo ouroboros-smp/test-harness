@@ -16,11 +16,16 @@ import net.minecraft.server.level.ServerPlayer;
 public final class PatrolHarnessAdapterMod implements ModInitializer, HarnessAdapter {
     private final PatrolConflictV2Client conflict = new PatrolConflictV2Client(
             () -> FabricLoader.getInstance().getObjectShare().get(PatrolConflictV2Client.KEY));
+    private final PatrolConflictV2Client combat = PatrolConflictV2Client.combatV3(
+            () -> FabricLoader.getInstance().getObjectShare().get(PatrolConflictV2Client.KEY_V3));
 
     @Override
     public void onInitialize() {
         HarnessAdapters.register(this);
-        ServerLifecycleEvents.SERVER_STOPPING.register(ignored -> conflict.close());
+        ServerLifecycleEvents.SERVER_STOPPING.register(ignored -> {
+            conflict.close();
+            combat.close();
+        });
     }
 
     @Override
@@ -42,6 +47,16 @@ public final class PatrolHarnessAdapterMod implements ModInitializer, HarnessAda
                     optionalNonNegativeLong(arguments, "afterRevision"));
             case "events" -> conflict.events();
             case "clear-events" -> conflict.clearEvents();
+            case "combat-protocol" -> combat.describe();
+            case "combat-status" -> combat.status(requiredPlayer(server, arguments).getUUID());
+            case "combat-replay" -> combat.replay(
+                    requiredPlayer(server, arguments).getUUID(),
+                    optionalNonNegativeLong(arguments, "afterRevision"));
+            case "combat-reconcile" -> combat.reconcile(
+                    requiredPlayer(server, arguments).getUUID(),
+                    optionalNonNegativeLong(arguments, "afterRevision"));
+            case "combat-events" -> combat.events();
+            case "combat-clear-events" -> combat.clearEvents();
             default -> throw new IllegalArgumentException(
                     "unknown Patrol adapter operation: " + operation);
         };

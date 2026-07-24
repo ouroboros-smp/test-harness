@@ -179,7 +179,7 @@ export function validateScenario(value: unknown): string[] {
 export const TRACKED_ISSUES = [
   ...Array.from({ length: 22 }, (_, index) => index + 1),
   24, 25, 26, 27, 28, 29,
-  32, 33, 34, 36, 39, 42, 44, 45, 46, 51, 52,
+  32, 33, 34, 36, 37, 39, 42, 44, 45, 46, 51, 52,
 ];
 
 export function issueCoverage(scenarios: Scenario[], expected = TRACKED_ISSUES) {
