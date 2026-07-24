@@ -92,6 +92,67 @@ jobs:
           path: artifacts/live-smoke
           if-no-files-found: error
 
+  rooms-hull-contract:
+    needs: verify
+    runs-on: [self-hosted, crucible-pc]
+    timeout-minutes: 35
+    env:
+      ROOMS_COMMIT: f4f2bd68e55074a137bd93bc75ed2c959ef62331
+      ROOMS_JAR: rooms-consumer/platform/fabric/build/libs/rooms-fabric-0.3.1.jar
+      ROOMS_ADAPTER_JAR: adapters/rooms/build/libs/ouro-harness-rooms-adapter-1.0.0.jar
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Check out exact Rooms PR artifact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/rooms-and-structures
+          ref: f4f2bd68e55074a137bd93bc75ed2c959ef62331
+          path: rooms-consumer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - run: npm ci
+      - run: npm run build
+      - name: Build exact Rooms PR jar
+        working-directory: rooms-consumer
+        run: ./gradlew :platform:fabric:build --no-daemon
+      - name: Build harness bridge and Rooms adapter
+        run: ./gradlew :bridge:build :adapters:rooms:build --no-daemon
+      - name: Verify the exact Rooms checkout
+        run: |
+          actual="$(git -C rooms-consumer rev-parse HEAD)"
+          if [ "${actual}" != "${ROOMS_COMMIT}" ]; then
+            echo "Rooms checkout drift: expected ${ROOMS_COMMIT}, got ${actual}" >&2
+            exit 1
+          fi
+      - name: Record immutable commit and jar provenance
+        run: >-
+          node scripts/write-artifact-provenance.mjs
+          artifacts/rooms-hull-contract/provenance.json
+          ${ROOMS_COMMIT}
+          ${ROOMS_JAR}
+          ${GITHUB_SHA}
+          ${ROOMS_ADAPTER_JAR}
+      - name: Execute accepted Rooms hull matrix against exact PR jar
+        run: >-
+          node dist/cli.js run rooms/inferred-hull-contract
+          --artifact consumer=${ROOMS_JAR}
+          --artifact rooms_adapter=${ROOMS_ADAPTER_JAR}
+          --output artifacts/rooms-hull-contract
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rooms-hull-contract-evidence
+          path: artifacts/rooms-hull-contract
+          if-no-files-found: error
+
   parcels-offline-protection:
     needs: verify
     runs-on: [self-hosted, crucible-pc]
