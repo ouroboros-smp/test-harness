@@ -139,11 +139,12 @@ final class CofferAdapterJson {
         return result;
     }
 
-    static JsonObject pairEntry(int x, int y, int z, JsonElement lock) {
+    static JsonObject pairEntry(int x, int y, int z, String block, JsonElement lock) {
         JsonObject entry = new JsonObject();
         entry.addProperty("x", x);
         entry.addProperty("y", y);
         entry.addProperty("z", z);
+        entry.addProperty("block", block);
         JsonElement snapshot = lock == null ? JsonNull.INSTANCE : lock;
         entry.addProperty("bound", !snapshot.isJsonNull());
         entry.add("lock", snapshot);

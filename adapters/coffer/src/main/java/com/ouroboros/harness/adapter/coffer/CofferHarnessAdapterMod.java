@@ -18,8 +18,10 @@ import com.ouroboros.harness.bridge.HarnessAdapter;
 import com.ouroboros.harness.bridge.HarnessAdapters;
 import eu.pb4.common.protection.api.CommonProtection;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -31,11 +33,18 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.phys.AABB;
 
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -43,10 +52,19 @@ import java.util.function.Function;
 
 public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAdapter {
     static final Set<String> SUPPORTED_OPERATIONS = Operation.names();
+    private static final Map<String, String> PROVIDER_KEYS = Map.of(
+            "structures", "ouroboros:civilization/structure-registry/v1",
+            "principals", "ouroboros:civilization/principal-directory/v1",
+            "continuity", CofferInterop.CONTINUITY_KEY);
+    private final Map<String, Object> originalProviders = new HashMap<>();
+    private final Set<String> capturedProviders = new HashSet<>();
+    private final Path providerControlState =
+            FabricLoader.getInstance().getConfigDir().resolve("harness-coffer-provider-controls.properties");
 
     @Override
     public void onInitialize() {
         HarnessAdapters.register(this);
+        ServerLifecycleEvents.SERVER_STARTED.register(this::applyPersistedProviderControls);
     }
 
     @Override
@@ -58,6 +76,9 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
     public JsonElement invoke(MinecraftServer server, String operation, JsonObject arguments) {
         Operation descriptor = Operation.required(operation);
         descriptor.validate(arguments);
+        if (descriptor == Operation.PROVIDER_CONTROL) {
+            return providerControl(server, arguments);
+        }
         ServerLevel level = server.overworld();
         BlockPos pos = requiredPosition(server, arguments);
         return descriptor.invoke(server, level, pos, arguments);
@@ -65,6 +86,119 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
 
     static void validateOperation(String operation, JsonObject arguments) {
         Operation.required(operation).validate(arguments);
+    }
+
+    private JsonObject providerControl(MinecraftServer server, JsonObject arguments) {
+        String provider = CofferAdapterJson.requiredString(arguments, "provider");
+        String mode = CofferAdapterJson.requiredString(arguments, "mode");
+        if ("all".equals(provider)) {
+            restoreAllProviders();
+            saveProviderControls(new Properties());
+            return providerControlResult(provider, mode);
+        }
+
+        UUID player = arguments.has("player")
+                ? requiredPlayer(server, arguments.get("player").getAsString()).getUUID()
+                : null;
+        if ("original".equals(mode)) {
+            restoreProvider(provider);
+        } else {
+            captureAndPublish(provider, mode, player);
+        }
+        Properties controls = loadProviderControls();
+        updateProviderControl(controls, provider, mode, player);
+        saveProviderControls(controls);
+        return providerControlResult(provider, mode);
+    }
+
+    private void applyPersistedProviderControls(MinecraftServer server) {
+        Properties controls = loadProviderControls();
+        for (String provider : PROVIDER_KEYS.keySet().stream().sorted().toList()) {
+            String mode = controls.getProperty("mode." + provider);
+            if (mode == null) continue;
+            String encodedPlayer = controls.getProperty("player." + provider);
+            UUID player = encodedPlayer == null ? null : UUID.fromString(encodedPlayer);
+            captureAndPublish(provider, mode, player);
+        }
+    }
+
+    private void captureAndPublish(String provider, String mode, UUID player) {
+        String key = PROVIDER_KEYS.get(provider);
+        if (capturedProviders.add(provider)) {
+            originalProviders.put(provider, FabricLoader.getInstance().getObjectShare().get(key));
+        }
+        Object replacement = CivilizationProviderControl.replacement(
+                provider, mode, originalProviders.get(provider), player);
+        publishProvider(key, replacement);
+    }
+
+    private void restoreProvider(String provider) {
+        if (!capturedProviders.remove(provider)) return;
+        publishProvider(PROVIDER_KEYS.get(provider), originalProviders.remove(provider));
+    }
+
+    private void restoreAllProviders() {
+        for (String provider : Set.copyOf(capturedProviders)) {
+            restoreProvider(provider);
+        }
+    }
+
+    private static void publishProvider(String key, Object provider) {
+        if (provider == null) {
+            FabricLoader.getInstance().getObjectShare().remove(key);
+        } else {
+            FabricLoader.getInstance().getObjectShare().put(key, provider);
+        }
+    }
+
+    private static JsonObject providerControlResult(String provider, String mode) {
+        JsonObject result = new JsonObject();
+        result.addProperty("provider", provider);
+        result.addProperty("mode", mode);
+        return result;
+    }
+
+    private Properties loadProviderControls() {
+        Properties controls = new Properties();
+        if (!Files.exists(providerControlState)) return controls;
+        try (Reader reader = Files.newBufferedReader(providerControlState)) {
+            controls.load(reader);
+            return controls;
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to read harness provider controls", e);
+        }
+    }
+
+    private void saveProviderControls(Properties controls) {
+        try {
+            if (controls.isEmpty()) {
+                Files.deleteIfExists(providerControlState);
+                return;
+            }
+            Files.createDirectories(providerControlState.getParent());
+            try (Writer writer = Files.newBufferedWriter(providerControlState)) {
+                controls.store(writer, "test-harness Coffer provider fault controls");
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to persist harness provider controls", e);
+        }
+    }
+
+    private static void updateProviderControl(
+            Properties controls, String provider, String mode, UUID player) {
+        String modeKey = "mode." + provider;
+        String playerKey = "player." + provider;
+        if ("original".equals(mode)) {
+            controls.remove(modeKey);
+            controls.remove(playerKey);
+            return;
+        }
+        controls.setProperty(modeKey, mode);
+        if (player == null) {
+            controls.remove(playerKey);
+        } else {
+            controls.setProperty(playerKey, player.toString());
+        }
     }
 
     private static JsonObject bind(
@@ -237,7 +371,9 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
         for (BlockPos member : pairPositions(level, pos)) {
             JsonElement lock = inspectOptional(level, member);
             pair.add(CofferAdapterJson.pairEntry(
-                    member.getX(), member.getY(), member.getZ(), lock));
+                    member.getX(), member.getY(), member.getZ(),
+                    BuiltInRegistries.BLOCK.getKey(level.getBlockState(member).getBlock()).toString(),
+                    lock));
         }
         return pair;
     }
@@ -324,7 +460,11 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
         PROTECTION("protection", Operation::validatePlayer, CofferHarnessAdapterMod::protection),
         INSPECT_REGISTRY("inspect-registry", arguments -> { },
                 (server, level, pos, arguments) -> inspectRegistry(level, pos)),
-        CIVILIZATION("civilization", Operation::validatePlayer, CofferHarnessAdapterMod::civilization);
+        CIVILIZATION("civilization", Operation::validatePlayer, CofferHarnessAdapterMod::civilization),
+        PROVIDER_CONTROL("provider-control", Operation::validateProviderControl,
+                (server, level, pos, arguments) -> {
+                    throw new AssertionError("provider-control is invoked without a position");
+                });
 
         private static final Map<String, Operation> BY_NAME = java.util.Arrays.stream(values())
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Operation::serializedName, value -> value));
@@ -352,6 +492,29 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
 
         private static void validatePlayer(JsonObject arguments) {
             CofferAdapterJson.requiredString(arguments, "player");
+        }
+
+        private static void validateProviderControl(JsonObject arguments) {
+            String provider = CofferAdapterJson.requiredString(arguments, "provider");
+            String mode = CofferAdapterJson.requiredString(arguments, "mode");
+            Set<String> modes = switch (provider) {
+                case "all" -> Set.of("original");
+                case "structures" -> Set.of(
+                        "original", "missing", "malformed", "resident", "transferred");
+                case "principals" -> Set.of(
+                        "original", "missing", "malformed", "throwing", "stale");
+                case "continuity" -> Set.of(
+                        "original", "missing", "malformed",
+                        "restore-throwing", "acknowledge-throwing");
+                default -> throw new IllegalArgumentException("unknown provider: " + provider);
+            };
+            if (!modes.contains(mode)) {
+                throw new IllegalArgumentException(
+                        "unsupported provider control: " + provider + "/" + mode);
+            }
+            if (Set.of("resident", "transferred").contains(mode)) {
+                CofferAdapterJson.requiredString(arguments, "player");
+            }
         }
 
         String serializedName() {

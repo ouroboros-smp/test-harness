@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: coffer/civilization-stack
 title: Coffer, Rooms, and Kinship principal and access interoperability
-description: Builds a real Rooms structure owned by a Kinship principal, then proves personal fallback, premises administration, ordinary-member denial, opt-in Kinship access, and restart persistence with packaged jars and real clients.
+description: Builds a real Rooms structure owned by a Kinship principal, then proves independent resident and Kinship grants, fail-closed provider faults, personal fallback, selective premises transfer, and restart-safe two-phase continuity with packaged jars and real clients.
 issues: [39, 46]
 tags: [coffer, rooms, kinship, civilization, multi-client, restart]
 variables:
@@ -120,15 +120,22 @@ steps:
       - { type: value.json, value: member-civilization, jsonPath: principal, operator: contains, expected: "kinship:" }
 
   - id: personal
-    name: Preserve personal ownership until group access is explicitly enabled
+    name: Preserve personal ownership and local trust until group access is explicitly enabled
     actions:
       - { type: adapter.invoke, adapter: coffer, operation: bind, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, type: private, ownerPlayer: CivHead }, as: personal-bind }
       - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivHead }, as: personal-head }
       - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: personal-member }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, type: private, ownerPlayer: CivMember }, as: durable-personal-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, players: [CivHead] }, as: durable-personal-trust }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, player: CivMember }, as: durable-personal-owner }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, player: CivHead }, as: durable-personal-trusted }
     assertions:
       - { type: value.json, value: personal-bind, jsonPath: lock.ownershipMode, expected: personal }
       - { type: value.json, value: personal-head, jsonPath: allowed, expected: true }
       - { type: value.json, value: personal-member, jsonPath: allowed, expected: false }
+      - { type: value.json, value: durable-personal-bind, jsonPath: lock.ownershipMode, expected: personal }
+      - { type: value.json, value: durable-personal-owner, jsonPath: allowed, expected: true }
+      - { type: value.json, value: durable-personal-trusted, jsonPath: allowed, expected: true }
 
   - id: premises
     name: Restrict premises management to the family head and opt ordinary members into access
@@ -156,19 +163,93 @@ steps:
       - { type: value.json, value: kinship-opt-in, jsonPath: lock.accessScopes, operator: contains, expected: kinship_members }
       - { type: value.json, value: continuity-flag, jsonPath: lock.flagOverrides.hoppers, expected: false }
 
+  - id: independent-scopes
+    name: Keep Rooms residents and Kinship membership as independent opt-in grants
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, ownershipMode: premises, accessScopes: [structure_residents] } }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: structures, mode: resident, player: CivMember } }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: stale } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: resident-with-stale-kinship }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: structures, mode: original } }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: original } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: kinship-member-without-residency }
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, ownershipMode: premises, accessScopes: [kinship_members] } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: kinship-member-opted-in }
+    assertions:
+      - { type: value.json, value: resident-with-stale-kinship, jsonPath: allowed, expected: true }
+      - { type: value.json, value: kinship-member-without-residency, jsonPath: allowed, expected: false }
+      - { type: value.json, value: kinship-member-opted-in, jsonPath: allowed, expected: true }
+
+  - id: provider-failures
+    name: Fail group-derived access closed while retaining personal ownership and local trust
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, ownershipMode: premises, accessScopes: [structure_residents, kinship_members] } }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: missing } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: missing-group }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivHead }, as: missing-binding-owner }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, player: CivMember }, as: missing-personal-owner }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: malformed } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: malformed-group }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, player: CivHead }, as: malformed-local-trust }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: throwing } }
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, players: [CivMember] } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: throwing-local-trust }
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, players: [] } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: throwing-group }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: stale } }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, player: CivMember }, as: stale-group }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: -6, y: 0, z: 0, player: CivMember }, as: stale-personal-owner }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: principals, mode: original } }
+    assertions:
+      - { type: value.json, value: missing-group, jsonPath: allowed, expected: false }
+      - { type: value.json, value: missing-binding-owner, jsonPath: allowed, expected: true }
+      - { type: value.json, value: missing-personal-owner, jsonPath: allowed, expected: true }
+      - { type: value.json, value: malformed-group, jsonPath: allowed, expected: false }
+      - { type: value.json, value: malformed-local-trust, jsonPath: allowed, expected: true }
+      - { type: value.json, value: throwing-local-trust, jsonPath: allowed, expected: true }
+      - { type: value.json, value: throwing-group, jsonPath: allowed, expected: false }
+      - { type: value.json, value: stale-group, jsonPath: allowed, expected: false }
+      - { type: value.json, value: stale-personal-owner, jsonPath: allowed, expected: true }
+
+  - id: selective-transfer
+    name: Move only premises ownership when a reviewed structure transfer occurs
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: -6, y: 0, z: 0 }, as: transfer-personal-before }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 1, y: 0, z: 0 }, as: transfer-premises-before }
+      - { type: value.extract, value: transfer-personal-before, jsonPath: owner, as: member-player-principal }
+      - { type: value.extract, value: transfer-personal-before, jsonPath: bindingOwner, as: personal-binding-owner }
+      - { type: value.extract, value: transfer-premises-before, jsonPath: bindingOwner, as: premises-binding-owner }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: structures, mode: transferred, player: CivMember } }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: -6, y: 0, z: 0 }, as: transfer-personal-after }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 1, y: 0, z: 0 }, as: transfer-premises-after }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: structures, mode: original } }
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, ownershipMode: premises, accessScopes: [kinship_members] } }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { relativeTo: CivHead, x: 1, y: 0, z: 0, flag: hoppers, value: false } }
+    assertions:
+      - { type: value.json, value: transfer-personal-after, jsonPath: ownershipMode, expected: personal }
+      - { type: value.json, value: transfer-personal-after, jsonPath: owner, expected: "${member-player-principal}" }
+      - { type: value.json, value: transfer-personal-after, jsonPath: bindingOwner, expected: "${personal-binding-owner}" }
+      - { type: value.json, value: transfer-premises-after, jsonPath: ownershipMode, expected: premises }
+      - { type: value.json, value: transfer-premises-after, jsonPath: owner, expected: "${member-player-principal}" }
+      - { type: value.json, value: transfer-premises-after, jsonPath: bindingOwner, expected: "${premises-binding-owner}" }
+
   - id: continuity
-    name: Relocate Rooms and preserve the complete Coffer lock identity through pack and revive
-    timeoutSeconds: 180
+    name: Complete Coffer restore before access and preserve idempotency through every durable phase
+    timeoutSeconds: 600
     actions:
       - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT id FROM structures LIMIT 1", as: structure-row }
       - { type: value.extract, value: structure-row, jsonPath: "0.id", as: structure-id }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 1, y: 0, z: 0 }, as: continuity-before-lock }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: -6, y: 0, z: 0 }, as: continuity-before-personal }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 1, y: 0, z: 0 }, as: continuity-before-registry }
       - { type: value.extract, value: continuity-before-lock, jsonPath: lock.owner, as: continuity-owner }
       - { type: value.extract, value: continuity-before-lock, jsonPath: lock.boundAtMillis, as: continuity-bound-at }
+      - { type: value.extract, value: continuity-before-personal, jsonPath: lock.owner, as: continuity-personal-owner }
+      - { type: value.extract, value: continuity-before-personal, jsonPath: lock.boundAtMillis, as: continuity-personal-bound-at }
       - { type: value.extract, value: continuity-before-registry, jsonPath: aggregateId, as: continuity-aggregate }
       - { type: value.extract, value: continuity-before-registry, jsonPath: revision, as: continuity-revision }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-target-before }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 34, y: 0, z: 0 }, as: continuity-personal-target-before }
       - { type: client.command, client: head, command: "room pack" }
       - type: wait.until
         timeoutMs: 60000
@@ -179,13 +260,51 @@ steps:
       - { type: value.extract, value: packed-row, jsonPath: "0.revive_y", as: revive-y }
       - { type: value.extract, value: packed-row, jsonPath: "0.revive_z", as: revive-z }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run setblock ~1 ~ ~ air" } }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: continuity, mode: restore-throwing } }
       - { type: client.command, client: head, command: "room revive ${structure-id} ${revive-x} ${revive-y} ${revive-z}" }
       - type: wait.until
         timeoutMs: 60000
         intervalMs: 250
         assertion: { type: client.event, client: head, event: message, pattern: "Revived structure.*room\\(s\\).*at" }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ? AND phase = 0", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT phase FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-phase-zero }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-blocked-before-restore }
+      - { type: server.restart, reconnect: true }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ? AND phase = 0", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT phase FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-phase-zero-after-restart }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-blocked-after-restart }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: continuity, mode: acknowledge-throwing } }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ? AND phase = 1", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT phase FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-phase-one }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-lock }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 34, y: 0, z: 0 }, as: continuity-after-personal }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-registry }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, flag: hoppers, value: true }, as: continuity-later-mutation }
+      - { type: server.restart, reconnect: true }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ? AND phase = 1", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT phase FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-phase-one-after-restart }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-phase-one-retry }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: continuity, mode: original } }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 0 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-complete }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-ack }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-final-registry }
+      - { type: value.extract, value: continuity-final-registry, jsonPath: revision, as: continuity-post-retry-revision }
       - { type: adapter.invoke, adapter: coffer, operation: civilization, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, as: continuity-after-civilization }
       - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, as: continuity-after-access }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivMember ~41 ~ ~-2 0 0" } }
@@ -194,6 +313,15 @@ steps:
         assertion: { type: client.event, client: member, event: window_open, count: 2, operator: gte }
     assertions:
       - { type: value.json, value: continuity-target-before, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: continuity-target-before, jsonPath: pair.0.block, expected: "minecraft:chest" }
+      - { type: value.json, value: continuity-personal-target-before, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: continuity-phase-zero, jsonPath: "0.phase", expected: 0 }
+      - { type: value.json, value: continuity-blocked-before-restore, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: continuity-blocked-before-restore, jsonPath: pair.0.block, expected: "minecraft:chest" }
+      - { type: value.json, value: continuity-phase-zero-after-restart, jsonPath: "0.phase", expected: 0 }
+      - { type: value.json, value: continuity-blocked-after-restart, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: continuity-blocked-after-restart, jsonPath: pair.0.block, expected: "minecraft:chest" }
+      - { type: value.json, value: continuity-phase-one, jsonPath: "0.phase", expected: 1 }
       - { type: value.json, value: continuity-after-lock, jsonPath: lock.type, expected: private }
       - { type: value.json, value: continuity-after-lock, jsonPath: lock.owner, expected: "${continuity-owner}" }
       - { type: value.json, value: continuity-after-lock, jsonPath: lock.boundAtMillis, expected: "${continuity-bound-at}" }
@@ -202,6 +330,14 @@ steps:
       - { type: value.json, value: continuity-after-lock, jsonPath: lock.accessScopes, operator: contains, expected: kinship_members }
       - { type: value.json, value: continuity-after-registry, jsonPath: aggregateId, expected: "${continuity-aggregate}" }
       - { type: value.json, value: continuity-after-registry, jsonPath: revision, expected: "${continuity-revision}" }
+      - { type: value.json, value: continuity-after-personal, jsonPath: lock.ownershipMode, expected: personal }
+      - { type: value.json, value: continuity-after-personal, jsonPath: lock.owner, expected: "${continuity-personal-owner}" }
+      - { type: value.json, value: continuity-after-personal, jsonPath: lock.boundAtMillis, expected: "${continuity-personal-bound-at}" }
+      - { type: value.json, value: continuity-later-mutation, jsonPath: lock.flagOverrides.hoppers, expected: true }
+      - { type: value.json, value: continuity-phase-one-after-restart, jsonPath: "0.phase", expected: 1 }
+      - { type: value.json, value: continuity-after-phase-one-retry, jsonPath: lock.flagOverrides.hoppers, expected: true }
+      - { type: value.json, value: continuity-complete, jsonPath: "0.count", expected: 0 }
+      - { type: value.json, value: continuity-after-ack, jsonPath: lock.flagOverrides.hoppers, expected: true }
       - { type: value.json, value: continuity-after-civilization, jsonPath: structure.owner, operator: contains, expected: "kinship:" }
       - { type: value.json, value: continuity-after-access, jsonPath: allowed, expected: true }
 
@@ -218,11 +354,11 @@ steps:
       - { type: value.json, value: restarted-civilization, jsonPath: principal, operator: contains, expected: "kinship:" }
       - { type: value.json, value: restarted-civilization, jsonPath: structure.owner, operator: contains, expected: "kinship:" }
       - { type: value.json, value: restarted-lock, jsonPath: lock.ownershipMode, expected: premises }
-      - { type: value.json, value: restarted-lock, jsonPath: lock.flagOverrides.hoppers, expected: false }
+      - { type: value.json, value: restarted-lock, jsonPath: lock.flagOverrides.hoppers, expected: true }
       - { type: value.json, value: restarted-registry, jsonPath: aggregateId, expected: "${continuity-aggregate}" }
-      - { type: value.json, value: restarted-registry, jsonPath: revision, expected: "${continuity-revision}" }
+      - { type: value.json, value: restarted-registry, jsonPath: revision, expected: "${continuity-post-retry-revision}" }
       - { type: value.json, value: restarted-access, jsonPath: allowed, expected: true }
-      - { type: log.absent, pattern: "wrong thread|ConcurrentModificationException|provider.*failed" }
+      - { type: log.absent, pattern: "wrong thread|ConcurrentModificationException" }
 
   - id: stop
     name: Stop after success or failure

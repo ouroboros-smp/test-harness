@@ -55,6 +55,13 @@ class CofferAdapterJsonTest {
         for (String operation : Set.of("can-open", "protection", "civilization")) {
             assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(operation, player));
         }
+        assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(
+                "provider-control", object("provider", "principals", "mode", "stale")));
+        assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(
+                "provider-control",
+                object("provider", "structures", "mode", "resident", "player", "OnlinePlayer")));
+        assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(
+                "provider-control", object("provider", "all", "mode", "original")));
     }
 
     @Test
@@ -112,6 +119,12 @@ class CofferAdapterJsonTest {
         JsonObject invalidFlag = object("flag", "hoppers", "value", "false");
         assertThrows(IllegalArgumentException.class,
                 () -> CofferHarnessAdapterMod.validateOperation("set-flag", invalidFlag));
+        assertThrows(IllegalArgumentException.class,
+                () -> CofferHarnessAdapterMod.validateOperation(
+                        "provider-control", object("provider", "unknown", "mode", "missing")));
+        assertThrows(IllegalArgumentException.class,
+                () -> CofferHarnessAdapterMod.validateOperation(
+                        "provider-control", object("provider", "structures", "mode", "resident")));
     }
 
     @Test
@@ -135,7 +148,7 @@ class CofferAdapterJsonTest {
                 new ContainerPolicy(OwnershipMode.PREMISES, Set.of(AccessScope.KINSHIP_MEMBERS)),
                 key);
         JsonArray pair = new JsonArray();
-        pair.add(CofferAdapterJson.pairEntry(4, 70, -8, lock));
+        pair.add(CofferAdapterJson.pairEntry(4, 70, -8, "minecraft:chest", lock));
         JsonObject response = CofferAdapterJson.mutationResult(true, lock, pair);
 
         assertTrue(response.get("updated").getAsBoolean());
@@ -150,10 +163,13 @@ class CofferAdapterJsonTest {
         assertEquals(4, pairEntry.get("x").getAsInt());
         assertEquals(70, pairEntry.get("y").getAsInt());
         assertEquals(-8, pairEntry.get("z").getAsInt());
+        assertEquals("minecraft:chest", pairEntry.get("block").getAsString());
         assertEquals("key", pairEntry.getAsJsonObject("lock").get("type").getAsString());
 
-        JsonObject unboundPairEntry = CofferAdapterJson.pairEntry(5, 70, -8, JsonNull.INSTANCE);
+        JsonObject unboundPairEntry =
+                CofferAdapterJson.pairEntry(5, 70, -8, "minecraft:air", JsonNull.INSTANCE);
         assertFalse(unboundPairEntry.get("bound").getAsBoolean());
+        assertEquals("minecraft:air", unboundPairEntry.get("block").getAsString());
         assertEquals(JsonNull.INSTANCE, unboundPairEntry.get("lock"));
 
         JsonObject cleared = CofferAdapterJson.mutationResult(true, null, new JsonArray());
@@ -164,7 +180,8 @@ class CofferAdapterJsonTest {
     void operationCatalogIsComplete() {
         assertEquals(Set.of(
                 "inspect", "inspect-pair", "bind", "set-trusted", "set-flag", "set-policy",
-                "clear", "can-open", "protection", "inspect-registry", "civilization"),
+                "clear", "can-open", "protection", "inspect-registry", "civilization",
+                "provider-control"),
                 CofferHarnessAdapterMod.SUPPORTED_OPERATIONS);
     }
 

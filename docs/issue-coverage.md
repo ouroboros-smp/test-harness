@@ -32,8 +32,8 @@ harness-only bridge on 2026-07-18.
 | #39 | Composable production-stack behavior contracts; OuroVeil contributes packaged boot, unmodded-client recovery, restart, and companion-client GameTest evidence | `ouroveil/release-acceptance`, `portfolio/full-manifest-compatibility` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
 | #44 | Canonical Coffer counters on the installed FabricExporter endpoint | `coffer/metrics-exporter` |
-| #45 | Coffer default, per-command deny/grant, live group, admin, audited bypass, and vanilla operator fallback permissions | `coffer/permissions-luckperms` |
-| #46 | Coffer, Rooms, and Kinship principal, management, continuity, provider-failure, and restart contracts | `coffer/civilization-stack` |
+| #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
+| #46 | Coffer, Rooms, and Kinship principal, management, provider-failure, selective-transfer, phase-0/phase-1 retry, and restart contracts; pre-unfreeze completion remains blocked | `coffer/civilization-stack` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
 tracks behavioral production-stack interoperability. The executable Coffer
@@ -51,6 +51,18 @@ from `TRACKED_ISSUES` and the maintained portfolio until a packaged Parcels
 provider exists. Activation requires proving that Parcels denial precedes Rooms
 storage HP, allowed mutation reaches Rooms, and Parcels never grants Coffer
 access.
+
+Issue [#46](https://github.com/ouroboros-smp/test-harness/issues/46) is not
+ready to close. `coffer/civilization-stack` now proves independent Rooms
+resident and Kinship grants; missing, malformed, throwing, and stale provider
+failure; personal and local-trust fallback; selective premises transfer; and
+restart/retry idempotency in continuity phases 0 and 1 with packaged jars and
+two real clients. The same phase-0 regression shows a revived chest remains
+physically present while its Coffer lock is absent. Rooms issue
+[#98](https://github.com/ouroboros-smp/rooms-and-structures/issues/98) tracks
+the required product fix: keep revival frozen until every consumer restore
+completes. After that fix lands, the scenario must be updated and rerun to
+assert true pre-unfreeze completion before #46 can close.
 
 Issues #19 through #22 remain open. The focused scenarios map each original
 checklist to executable evidence, but the legacy `coffer/runtime-acceptance`
