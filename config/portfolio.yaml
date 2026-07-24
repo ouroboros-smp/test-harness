@@ -9,6 +9,7 @@ variables:
   mehenRepository: ../mehen
   ourometricsRepository: ../ouro-metrics
   patrolRepository: ../Patrol
+  parcelsRepository: ../parcels
   roomsRepository: ../rooms-and-structures
   watershedRepository: ../watershed
   wildanimalbalancerRepository: ../WildAnimalBalancer
@@ -127,6 +128,26 @@ targets:
     scenarios:
       - patrol/runtime-acceptance
       - patrol/conflict-v2-contract
+
+  - id: parcels
+    title: Parcels
+    repository: "${parcelsRepository}"
+    testedVersion: 0.1.0
+    build:
+      - name: Parcels Fabric clean build and tests
+        command: ["${platform.gradleWrapper}", :core:clean, :fabric:clean, :core:build, :fabric:build]
+        java: 25
+        timeoutMinutes: 30
+      - name: Parcels harness adapter
+        base: harness
+        command: ["${platform.gradleWrapper}", :adapters:parcels:clean, :adapters:parcels:build]
+        java: 25
+        timeoutMinutes: 15
+    artifacts:
+      consumer: { path: fabric/build/libs/fabric-0.1.0.jar }
+      parcels_adapter: { path: adapters/parcels/build/libs/ouro-harness-parcels-adapter-1.0.0.jar, base: harness }
+    scenarios:
+      - parcels/offline-protection
 
   - id: rooms
     title: Rooms and Structures

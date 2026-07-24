@@ -58,15 +58,20 @@ stack.
 
 Issue [#52](https://github.com/ouroboros-smp/test-harness/issues/52) is tracked
 by the machine-readable `config/raid-safety-matrix.yaml`, not by a placeholder
-scenario. The matrix links each blocked final case to Patrol #37, Rooms
+scenario. `parcels/offline-protection` is the first released-jar foundation: it
+proves Parcels #5's disabled default, direct-defender offline arm, reconnect
+cancellation, provider-unavailable restart behavior, deadline preservation, and
+rollback with a real attacking client. It does not substitute for the final
+five-jar raid matrix. The matrix links each blocked final case to Patrol #37, Rooms
 #96/#97, Parcels #5, or harness #47 and rejects scenario ids on blocked cases.
 Its executable foundations reference only maintained scenarios that run
 against merged jars. The matrix also detects missing portfolio artifact
 bindings, currently tracked by
 [#57](https://github.com/ouroboros-smp/test-harness/issues/57). Run
 `node dist/cli.js raid-matrix --require-complete` for the strict
-production-version release gate. Issue #52 remains outside
-`TRACKED_ISSUES` until every final five-jar case is executable and green.
+production-version release gate. Issue #52 is now in `TRACKED_ISSUES` because
+its first packaged-jar foundation is executable. The issue remains open until
+every final five-jar case is executable and green.
 
 Issue [#46](https://github.com/ouroboros-smp/test-harness/issues/46) is not
 ready to close. `coffer/civilization-stack` now proves independent Rooms

@@ -1,0 +1,182 @@
+schemaVersion: 1
+id: parcels/offline-protection
+title: Parcels released-jar defender offline protection lifecycle
+description: Proves the packaged Parcels jar preserves the disabled default, arms a direct claim for an offline defender, cancels protection synchronously on reconnect, restores durable state without exposing it while Patrol is unavailable, and supports rollback.
+issues: [52]
+tags: [parcels, offline-protection, patrol-v3, real-client, persistence, restart, rollback]
+artifacts:
+  consumer: { required: true, description: Packaged Parcels Fabric server jar }
+  parcels_adapter: { required: true, description: Harness-only deterministic Patrol v3 and claim fixture adapter }
+clients:
+  - { name: owner, username: ParcelOwner, gameMode: creative, connectOnStart: false }
+  - { name: raider, username: ParcelRaider, gameMode: creative, connectOnStart: false }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+  properties:
+    online-mode: false
+steps:
+  - id: seed
+    name: Bootstrap schema 12 and persist one direct-player active claim
+    actions:
+      - { type: server.start }
+      - type: adapter.invoke
+        adapter: parcels
+        operation: seed-direct-claim
+        args:
+          structureId: "00000000-0000-0000-0000-000000000501"
+          roomId: "00000000-0000-0000-0000-000000000502"
+          ownerUsername: ParcelOwner
+          x: 0
+          y: 64
+          z: 0
+        as: seeded-claim
+      - { type: server.stop }
+    assertions:
+      - { type: value.json, value: seeded-claim, jsonPath: ownerId, expected: "2cd87c18-2bef-3de3-87e8-12f801f29421" }
+      - { type: file.exists, path: config/parcels/offline-protection.properties }
+
+  - id: disabled_default
+    name: Preserve the pre-rollout always-protected behavior by default
+    actions:
+      - { type: server.start }
+      - { type: client.connect, client: raider }
+      - { type: console.command, command: "forceload add -1 -1 1 1" }
+      - { type: console.command, command: "setblock 0 64 0 minecraft:glass" }
+      - { type: console.command, command: "tp ParcelRaider 0 64 2" }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: default-protection }
+      - { type: client.break_block, client: raider, x: 0, y: 64, z: 0 }
+      - { type: wait.ticks, ticks: 10 }
+    assertions:
+      - { type: value.json, value: default-protection, jsonPath: bound, expected: true }
+      - { type: value.json, value: default-protection, jsonPath: break, expected: false }
+      - { type: value.json, value: default-protection, jsonPath: place, expected: false }
+      - { type: value.json, value: default-protection, jsonPath: explosion, expected: false }
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: minecraft:glass }
+
+  - id: stop_disabled
+    name: Stop before changing the rollout configuration
+    actions:
+      - { type: server.stop }
+
+  - id: enable
+    name: Opt in with a zero-second cooldown for deterministic acceptance
+    actions:
+      - type: file.write
+        path: config/parcels/offline-protection.properties
+        content: |
+          schema-version=1
+          offline-protection.enabled=true
+          offline-protection.cooldown-seconds=0
+      - type: file.write
+        path: config/harness-parcels-patrol.properties
+        content: |
+          available=true
+      - { type: server.start }
+      - { type: client.connect, client: raider }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: true }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: armed-offline }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000501"], as: armed-row }
+      - { type: snapshot.capture, name: armed-deadlines, value: armed-row }
+    assertions:
+      - { type: value.json, value: armed-offline, jsonPath: break, expected: false }
+      - { type: value.json, value: armed-offline, jsonPath: explosion, expected: false }
+      - { type: value.json, value: armed-row, jsonPath: "0.armed", expected: 1 }
+
+  - id: reconnect
+    name: Cancel armed protection before the defender's next world action
+    actions:
+      - { type: client.connect, client: owner }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: false }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: owner-online }
+      - { type: client.break_block, client: raider, x: 0, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: minecraft:air }
+    assertions:
+      - { type: value.json, value: owner-online, jsonPath: break, expected: true }
+      - { type: value.json, value: owner-online, jsonPath: place, expected: true }
+      - { type: value.json, value: owner-online, jsonPath: explosion, expected: true }
+
+  - id: disconnect
+    name: Re-arm from a fresh absence epoch after the defender disconnects
+    actions:
+      - { type: client.disconnect, client: owner }
+      - { type: console.command, command: "setblock 0 64 0 minecraft:glass" }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: true }
+      - { type: client.break_block, client: raider, x: 0, y: 64, z: 0 }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000501"], as: rearmed-row }
+      - { type: snapshot.capture, name: rearmed-deadlines, value: rearmed-row }
+    assertions:
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: minecraft:glass }
+      - { type: value.json, value: rearmed-row, jsonPath: "0.armed", expected: 1 }
+
+  - id: stop_rearmed
+    name: Stop with an armed epoch persisted
+    actions:
+      - { type: server.stop }
+
+  - id: unavailable_restart
+    name: Keep durable armed state dormant while the Patrol provider is unavailable
+    actions:
+      - type: file.write
+        path: config/harness-parcels-patrol.properties
+        content: |
+          available=false
+      - { type: server.start }
+      - { type: client.connect, client: raider }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: false }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: provider-unavailable }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000501"], as: dormant-row }
+      - { type: snapshot.capture, name: dormant-deadlines, value: dormant-row }
+    assertions:
+      - { type: value.json, value: provider-unavailable, jsonPath: break, expected: true }
+      - { type: snapshot.equals, left: rearmed-deadlines, right: dormant-deadlines }
+
+  - id: provider_recovery
+    name: Restore the same persisted deadline without granting a fresh cooldown
+    actions:
+      - { type: adapter.invoke, adapter: parcels, operation: patrol-available, args: { available: true, playerUsername: ParcelOwner }, as: provider-recovered }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: true }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000501"], as: recovered-row }
+      - { type: snapshot.capture, name: recovered-deadlines, value: recovered-row }
+    assertions:
+      - { type: value.json, value: provider-recovered, jsonPath: available, expected: true }
+      - { type: snapshot.equals, left: rearmed-deadlines, right: recovered-deadlines }
+
+  - id: stop_recovered
+    name: Stop after provider recovery
+    actions:
+      - { type: server.stop }
+
+  - id: rollback
+    name: Disable the rollout without losing the durable claim
+    actions:
+      - type: file.write
+        path: config/parcels/offline-protection.properties
+        content: |
+          schema-version=1
+          offline-protection.enabled=false
+          offline-protection.cooldown-seconds=0
+      - { type: server.start }
+      - { type: client.connect, client: owner }
+      - { type: client.connect, client: raider }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: true }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: rolled-back }
+    assertions:
+      - { type: value.json, value: rolled-back, jsonPath: break, expected: false }
+      - { type: value.json, value: rolled-back, jsonPath: explosion, expected: false }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT COUNT(*) AS count FROM claims WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000501"], jsonPath: "0.count", expected: 1 }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

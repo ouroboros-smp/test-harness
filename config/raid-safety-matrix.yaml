@@ -10,6 +10,22 @@ production:
 # Foundations are executable against merged code. They are reusable evidence,
 # not substitutes for the final five-jar cases below.
 foundations:
+  - id: parcels-offline-protection
+    title: Packaged Parcels direct-defender offline-protection lifecycle
+    status: executable
+    artifacts: [parcels]
+    scenarios:
+      - id: parcels/offline-protection
+        bindings: {parcels: consumer}
+    proves:
+      - The disabled default preserves the prior always-protected behavior.
+      - Direct-defender disconnect and reconnect deterministically arm and cancel protection.
+      - Persisted deadlines remain dormant while Patrol is unavailable and recover unchanged.
+      - Rollback preserves the durable claim and restores prior protection behavior.
+    limitations:
+      - The Patrol v3 peer is deterministic harness code rather than packaged Patrol.
+      - Kinship group defenders, inferred Rooms hulls, Coffer locks, and storage durability are absent.
+
   - id: civilization-provider-contracts
     title: Packaged Kinship, Rooms, and Coffer provider failure and restart contracts
     status: executable

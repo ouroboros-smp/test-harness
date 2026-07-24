@@ -43,8 +43,11 @@ test("raid-safety matrix preserves executable foundations without overstating fi
   assert.equal(audit.executableFoundations, matrix.foundations.length);
   assert.equal(audit.executableAcceptance, 0);
   assert.deepEqual(audit.blockedCases, matrix.acceptance.map((entry) => entry.id));
-  assert.ok(audit.findings.some((finding) =>
+  assert.ok(!audit.findings.some((finding) =>
     finding.code === "MISSING_PRODUCTION_ARTIFACT" && finding.artifact === "parcels"));
+  assert.ok(matrix.foundations.some((entry) =>
+    entry.id === "parcels-offline-protection"
+    && entry.scenarios.some((scenario) => scenario.id === "parcels/offline-protection")));
   assert.ok(audit.findings.some((finding) =>
     finding.code === "VERSION_DRIFT" && finding.artifact === "patrol"));
   assert.ok(audit.findings.some((finding) =>
@@ -134,37 +137,21 @@ test("raid-safety release gate can become ready only with aligned inventory and 
   const patrol = futureProduction.mods.find((mod) => mod.id === "patrol")!;
   patrol.version = "0.4.0-alpha";
   patrol.file = "patrol-fabric-0.4.0-alpha.jar";
-  futureProduction.mods.push({
-    id: "parcels",
-    title: "Parcels",
-    modId: "parcels",
-    owner: "first-party",
-    bucket: "first-party",
-    enabled: true,
-    version: "0.1.0",
-    file: "parcels-fabric-0.1.0.jar",
-    repository: "https://github.com/ouroboros-smp/parcels",
-    portfolioTarget: "parcels",
-    obligations: ["released-jar raid-safety acceptance"],
-  });
   Object.assign(futurePortfolio.targets.find((target) => target.id === "coffer")!.artifacts!, {
     rooms: { path: "rooms-fabric-0.3.1.jar" },
     kinship: { path: "kinship-fabric-0.4.0.jar" },
   });
-  futurePortfolio.targets.push({
-    id: "parcels",
-    title: "Parcels",
-    repository: "../parcels",
-    testedVersion: "0.1.0",
-    build: [{ name: "build", command: ["./gradlew", "check"] }],
-    artifacts: Object.fromEntries(
+  const parcelsTarget = futurePortfolio.targets.find((target) => target.id === "parcels")!;
+  parcelsTarget.artifacts = {
+    ...parcelsTarget.artifacts,
+    ...Object.fromEntries(
       futureMatrix.production.requiredArtifacts.map((artifact) => [
         artifact,
         { path: futureProduction.mods.find((mod) => mod.id === artifact)!.file! },
       ]),
     ),
-    scenarios: [releaseScenario.id],
-  });
+  };
+  parcelsTarget.scenarios.push(releaseScenario.id);
   for (const entry of futureMatrix.acceptance) {
     entry.status = "executable";
     entry.scenarios = [{
