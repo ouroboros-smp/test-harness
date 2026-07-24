@@ -32,7 +32,7 @@ harness-only bridge on 2026-07-18.
 | #39 | Composable production-stack behavior contracts; OuroVeil contributes packaged boot, unmodded-client recovery, restart, and companion-client GameTest evidence | `ouroveil/release-acceptance`, `portfolio/full-manifest-compatibility` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
 | #44 | Canonical Coffer counters on the installed FabricExporter endpoint | `coffer/metrics-exporter` |
-| #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
+| #45 | Coffer default, per-command deny/grant, live group, admin, audited bypass, and vanilla operator fallback permissions | `coffer/permissions-luckperms` |
 | #46 | Coffer, Rooms, and Kinship principal, management, continuity, provider-failure, and restart contracts | `coffer/civilization-stack` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)

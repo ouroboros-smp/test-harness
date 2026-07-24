@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, TRACKED_ISSUES, validateScenario } from "./manifest.js";
+import type { Scenario, ScenarioStep } from "./types.js";
 
 test("all issue contracts load with unique ids and explicit tracked-issue coverage", async () => {
   const entries = await loadAllScenarios();
@@ -36,6 +37,41 @@ test("Mehen waits for the final MariaDB server instead of its temporary initiali
     .flatMap((step) => step.actions ?? [])
     .find((action) => action.type === "service.start" && action.name === "mariadb");
   assert.equal(mariadb?.waitForLog, "port: 3306");
+});
+
+test("Coffer LuckPerms acceptance denies and grants every documented command family", async () => {
+  const expected = [
+    "copy", "flag", "gui", "help", "info", "lock", "paste", "persist",
+    "policy", "quiet", "reload", "transfer", "trust", "unlock", "untrust",
+  ];
+  const scenario: Scenario | undefined = (await loadAllScenarios())
+    .find(({ scenario }) => scenario.id === "coffer/permissions-luckperms")
+    ?.scenario;
+  assert.ok(scenario);
+
+  for (const [stepId, decision] of [
+    ["deny_command_families", "false"],
+    ["grant_command_families", "true"],
+  ] as const) {
+    const step: ScenarioStep | undefined = scenario.steps.find((candidate) => candidate.id === stepId);
+    assert.ok(step, `missing ${stepId}`);
+    const configured: string[] = (step.actions ?? [])
+      .filter((action) => action.type === "console.command" && typeof action.command === "string")
+      .map((action) => /^lp user PermOwner permission set coffer\.command\.([a-z_]+) (?:true|false)$/.exec(String(action.command)))
+      .filter((match): match is RegExpExecArray => match !== null && String(match.input).endsWith(` ${decision}`))
+      .map((match) => match[1]!)
+      .sort();
+    const exercised: string[] = (step.actions ?? [])
+      .filter((action) => action.type === "client.command"
+        && action.client === "owner"
+        && typeof action.command === "string")
+      .map((action) => String(action.command).split(/\s+/, 3)[1])
+      .filter((family): family is string => family !== undefined)
+      .filter((family, index, families) => families.indexOf(family) === index)
+      .sort();
+    assert.deepEqual(configured, expected, `${stepId} permission decisions`);
+    assert.deepEqual(exercised, expected, `${stepId} real-client commands`);
+  }
 });
 
 test("composite action exposes the stable consumer contract", async () => {
