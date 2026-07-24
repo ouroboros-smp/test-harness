@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:client": "node scripts/cargo.mjs build --locked --manifest-path client/Cargo.toml",
-    "build:all": "npm run build && npm run build:client && npm run test:bridge",
+    "build:all": "npm run build && npm run build:client && npm run test:bridge && npm run test:patrol-adapter",
     "bootstrap:java": "node scripts/bootstrap-java.mjs",
     "clean": "node scripts/clean.mjs",
     "doctor": "node dist/cli.js doctor",
@@ -24,6 +24,7 @@
     "test": "npm run build && node --test --test-reporter=spec dist/**/*.test.js",
     "test:client": "node scripts/cargo.mjs test --locked --manifest-path client/Cargo.toml",
     "test:bridge": "node scripts/gradle.mjs :bridge:build",
+    "test:patrol-adapter": "node scripts/gradle.mjs :adapters:patrol:build",
     "validate": "npm run build && node dist/cli.js validate --require-all-issues"
   },
   "dependencies": {

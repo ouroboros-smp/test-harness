@@ -1,0 +1,142 @@
+schemaVersion: 1
+id: patrol/conflict-v2-contract
+title: Patrol packaged conflict-v2 attribution, replay, persistence, and clear contract
+description: Uses two real protocol clients for PvP intake and a harness-only JDK/ObjectShare adapter for strict conflict-v2 schema, replay, and restart assertions.
+issues: [25]
+tags: [fabric, minecraft-26.2, patrol, multi-client, pvp, public-api, persistence, restart]
+artifacts:
+  patrol: { required: true, description: Packaged Patrol Fabric server jar }
+  patrol_adapter: { required: true, description: Harness-only conflict-v2 ObjectShare adapter jar }
+clients:
+  - { name: aggressor, username: PatrolAggressor }
+  - { name: victim, username: PatrolVictim }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+  properties:
+    pvp: true
+    difficulty: peaceful
+steps:
+  - id: start
+    name: Start both real clients and verify the initial available protocol
+    actions:
+      - { type: server.start }
+      - { type: adapter.invoke, adapter: patrol, operation: protocol, as: initial-protocol }
+      - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: initial-aggressor }
+      - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolVictim }, as: initial-victim }
+      - { type: adapter.invoke, adapter: patrol, operation: clear-events, as: initial-events }
+    assertions:
+      - { type: log.present, pattern: "Patrol Fabric enabled" }
+      - { type: value.json, value: initial-protocol, jsonPath: installed, expected: true }
+      - { type: value.json, value: initial-protocol, jsonPath: subscribed, expected: true }
+      - { type: value.json, value: initial-protocol, jsonPath: protocolVersion, expected: 2 }
+      - { type: value.json, value: initial-protocol, jsonPath: eventSchemaVersion, expected: 1 }
+      - { type: value.json, value: initial-aggressor, jsonPath: status.available, expected: true }
+      - { type: value.json, value: initial-aggressor, jsonPath: status.state, expected: clear }
+      - { type: value.json, value: initial-aggressor, jsonPath: status.revision, expected: 0 }
+      - { type: value.json, value: initial-victim, jsonPath: status.available, expected: true }
+      - { type: value.json, value: initial-victim, jsonPath: status.revision, expected: 0 }
+      - { type: value.json, value: initial-events, jsonPath: errors.0, operator: absent }
+
+  - id: first_attack
+    name: Attribute the first hostile transition to the real attacking client
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolAggressor run tp PatrolVictim ~1 ~ ~" } }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.attack, client: aggressor, target: PatrolVictim }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: aggressor-after-first }
+    assertions:
+      - { type: value.json, value: aggressor-after-first, jsonPath: status.revision, expected: 1 }
+      - { type: value.json, value: aggressor-after-first, jsonPath: status.lastCounterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
+      - { type: value.json, value: aggressor-after-first, jsonPath: status.lastHostileAt, operator: gt, expected: 0 }
+
+  - id: second_attack
+    name: Advance the aggregate monotonically and reconcile bounded replay with status
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolAggressor run tp PatrolVictim ~1 ~ ~" } }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.attack, client: aggressor, target: PatrolVictim }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: aggressor-after-second }
+      - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolVictim }, as: victim-after-second }
+      - { type: adapter.invoke, adapter: patrol, operation: replay, args: { player: PatrolAggressor, afterRevision: 0 }, as: hostile-replay }
+      - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 0 }, as: hostile-reconciliation }
+      - { type: adapter.invoke, adapter: patrol, operation: events, as: hostile-live-events }
+      - { type: snapshot.capture, name: pre-restart-reconciliation, value: hostile-reconciliation }
+    assertions:
+      - { type: value.json, value: aggressor-after-second, jsonPath: status.revision, expected: 2 }
+      - { type: value.json, value: aggressor-after-second, jsonPath: status.playerId, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
+      - { type: value.json, value: aggressor-after-second, jsonPath: status.principal, expected: "player:f85a1081-c65f-3db8-a350-101aa41386eb" }
+      - { type: value.json, value: victim-after-second, jsonPath: status.lastHostileAt, expected: 0 }
+      - { type: value.json, value: victim-after-second, jsonPath: status.lastCounterparty, operator: absent }
+      - { type: value.json, value: hostile-replay, jsonPath: count, expected: 2 }
+      - { type: value.json, value: hostile-replay, jsonPath: events.0.aggregateRevision, expected: 1 }
+      - { type: value.json, value: hostile-replay, jsonPath: events.1.aggregateRevision, expected: 2 }
+      - { type: value.json, value: hostile-replay, jsonPath: events.0.actor, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
+      - { type: value.json, value: hostile-replay, jsonPath: events.0.data.participantRole, expected: aggressor }
+      - { type: value.json, value: hostile-replay, jsonPath: events.0.data.counterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
+      - { type: value.json, value: hostile-reconciliation, jsonPath: checks.valid, expected: true }
+      - { type: value.json, value: hostile-reconciliation, jsonPath: checks.strictlyIncreasing, expected: true }
+      - { type: value.json, value: hostile-reconciliation, jsonPath: checks.eventIdsUnique, expected: true }
+      - { type: value.json, value: hostile-reconciliation, jsonPath: checks.withinBound, expected: true }
+      - { type: value.json, value: hostile-reconciliation, jsonPath: checks.statusCoversReplay, expected: true }
+      - { type: value.json, value: hostile-live-events, jsonPath: count, expected: 2 }
+      - { type: value.json, value: hostile-live-events, jsonPath: truncated, expected: 0 }
+      - { type: value.json, value: hostile-live-events, jsonPath: errors.0, operator: absent }
+
+  - id: restart
+    name: Restore the same aggregate and replay history after a clean server restart
+    timeoutSeconds: 360
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 0 }, as: restarted-reconciliation }
+      - { type: snapshot.capture, name: post-restart-reconciliation, value: restarted-reconciliation }
+      - { type: adapter.invoke, adapter: patrol, operation: clear-events, as: restarted-events }
+    assertions:
+      - { type: value.json, value: restarted-reconciliation, jsonPath: status.available, expected: true }
+      - { type: value.json, value: restarted-reconciliation, jsonPath: status.revision, expected: 2 }
+      - { type: value.json, value: restarted-reconciliation, jsonPath: status.lastCounterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
+      - { type: value.json, value: restarted-reconciliation, jsonPath: count, expected: 2 }
+      - { type: value.json, value: restarted-reconciliation, jsonPath: checks.valid, expected: true }
+      - { type: value.json, value: restarted-reconciliation, jsonPath: checks.statusCoversReplay, expected: true }
+      - { type: snapshot.equals, left: pre-restart-reconciliation, right: post-restart-reconciliation, path: events }
+      - { type: value.json, value: restarted-events, jsonPath: count, expected: 0 }
+
+  - id: clear
+    name: Expire hostility into a system-authored clear event without a fixed tick race
+    timeoutSeconds: 100
+    actions:
+      - type: file.write
+        path: config/patrol/patrol.json
+        content:
+          window-seconds: 1
+      - { type: console.command, command: "patrol reload" }
+      - { type: wait.duration, seconds: 62 }
+      - { type: wait.ticks, ticks: 25 }
+      - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: cleared-status }
+      - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 2 }, as: cleared-reconciliation }
+      - { type: adapter.invoke, adapter: patrol, operation: events, as: clear-live-events }
+    assertions:
+      - { type: value.json, value: cleared-status, jsonPath: status.available, expected: true }
+      - { type: value.json, value: cleared-status, jsonPath: status.state, expected: clear }
+      - { type: value.json, value: cleared-status, jsonPath: status.revision, expected: 3 }
+      - { type: value.json, value: cleared-status, jsonPath: status.lastHostileAt, expected: 0 }
+      - { type: value.json, value: cleared-status, jsonPath: status.lastCounterparty, operator: absent }
+      - { type: value.json, value: cleared-reconciliation, jsonPath: count, expected: 1 }
+      - { type: value.json, value: cleared-reconciliation, jsonPath: events.0.action, expected: hostility_expired }
+      - { type: value.json, value: cleared-reconciliation, jsonPath: events.0.actor, operator: absent }
+      - { type: value.json, value: cleared-reconciliation, jsonPath: events.0.principal, operator: absent }
+      - { type: value.json, value: cleared-reconciliation, jsonPath: events.0.data.participantRole, expected: system }
+      - { type: value.json, value: cleared-reconciliation, jsonPath: checks.valid, expected: true }
+      - { type: value.json, value: clear-live-events, jsonPath: count, expected: 1 }
+      - { type: value.json, value: clear-live-events, jsonPath: errors.0, operator: absent }
+      - { type: log.absent, pattern: "Patrol conflict listener failed|Patrol conflict persistence listener failed|Patrol scheduled task failed" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

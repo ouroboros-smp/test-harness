@@ -20,7 +20,7 @@ harness-only bridge on 2026-07-18.
 | #21 | Vanilla automation extraction, deposit direction, timing, and logs | `coffer/automation-extraction`; legacy safety net `coffer/runtime-acceptance` |
 | #22 | Public API, Common Protection, ObjectShare, and server-only packaging | `coffer/api-protection-packaging`; legacy safety net `coffer/runtime-acceptance` |
 | #24 | Mehen MariaDB/Redis ban enforcement, expiry, pardon, and restart persistence | `mehen/governance-acceptance` |
-| #25 | Patrol commands, enforcer lifecycle, reload, and restart | `patrol/runtime-acceptance` |
+| #25 | Patrol commands, enforcer lifecycle, conflict-v2 attribution/replay, reload, persistence, and restart | `patrol/runtime-acceptance`, `patrol/conflict-v2-contract` |
 | #26 | Watershed spring commands, save, restart persistence, and removal | `watershed/spring-lifecycle` |
 | #27 | WildAnimalBalancer census, bounded top-up, metrics, reload, and persistence | `wildanimalbalancer/population-acceptance` |
 | #28 | OuroMetrics 1.21.11 exporter, config, HTTP metrics, and restart lifecycle | `ourometrics/exporter-lifecycle` |

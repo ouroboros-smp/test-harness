@@ -46,6 +46,7 @@ jobs:
       - run: npm run test:client
       - run: npm run build:client
       - run: npm run test:bridge
+      - run: npm run test:patrol-adapter
       - name: Build Coffer adapter contract dependency
         working-directory: consumer
         run: ./gradlew :core:jar :fabric:serverJar --no-daemon
