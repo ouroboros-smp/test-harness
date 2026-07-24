@@ -9,10 +9,27 @@ import { loadPortfolioManifest, runPortfolio, validatePortfolioJavaVersion, vali
 test("portfolio catalog maps every maintained scenario exactly once", async () => {
   const manifest = await loadPortfolioManifest();
   const catalogScenarios = manifest.targets.flatMap((target) => target.scenarios).sort();
-  const maintainedScenarios = (await loadAllScenarios()).map(({ scenario }) => scenario.id).sort();
+  const loadedScenarios = await loadAllScenarios();
+  const maintainedScenarios = loadedScenarios.map(({ scenario }) => scenario.id).sort();
   assert.deepEqual(catalogScenarios, maintainedScenarios);
   assert.equal(new Set(catalogScenarios).size, catalogScenarios.length);
-  assert.equal(manifest.targets.length, 12);
+  const scenariosById = new Map(loadedScenarios.map(({ scenario }) => [scenario.id, scenario]));
+  for (const target of manifest.targets) {
+    for (const scenarioId of target.scenarios) {
+      const scenario = scenariosById.get(scenarioId)!;
+      const required = Object.entries(scenario.artifacts ?? {})
+        .filter(([, artifact]) => artifact.required !== false && artifact.url === undefined)
+        .map(([name]) => name)
+        .sort();
+      const supplied = Object.keys(target.artifacts ?? {}).sort();
+      assert.deepEqual(
+        required.filter((name) => !supplied.includes(name)),
+        [],
+        `${target.id}/${scenarioId} required artifact bindings`,
+      );
+    }
+  }
+  assert.equal(manifest.targets.length, 13);
   assert.equal(manifest.targets.find((target) => target.id === "test-harness")?.repository, ".");
 });
 
@@ -33,36 +50,61 @@ test("portfolio catalog builds only maintained Fabric modules and orders the Cof
   assert.deepEqual(harness.build.at(-1)?.command.slice(1), [":bridge:build"]);
 
   const coffer = manifest.targets.find((target) => target.id === "coffer")!;
-  assert.equal(coffer.build.length, 2);
-  assert.equal(coffer.build[1]?.base, "harness");
-  assert.ok(coffer.build[1]?.command.some((part) => part.includes("coffer-fabric-server-0.1.5.jar")));
-  assert.ok(coffer.build[1]?.command.some((part) => part.includes("core-0.1.5.jar")));
-  assert.equal(coffer.build[1]?.command.at(-1), ":adapters:coffer:build");
+  assert.equal(coffer.build.length, 5);
+  assert.equal(coffer.build[1]?.repository, "../rooms-and-structures");
+  assert.equal(coffer.build[2]?.repository, "../kinship");
+  assert.equal(coffer.build[3]?.repository, "../WildAnimalBalancer");
+  assert.equal(coffer.build[4]?.base, "harness");
+  assert.ok(coffer.build[4]?.command.some((part) => part.includes("coffer-fabric-server-0.1.5.jar")));
+  assert.ok(coffer.build[4]?.command.some((part) => part.includes("core-0.1.5.jar")));
+  assert.equal(coffer.build[4]?.command.at(-1), ":adapters:coffer:build");
+  assert.equal(coffer.artifacts?.rooms?.repository, "../rooms-and-structures");
+  assert.equal(coffer.artifacts?.kinship?.repository, "../kinship");
+  assert.equal(coffer.artifacts?.wildanimalbalancer?.repository, "../WildAnimalBalancer");
 });
 
 test("portfolio validation rejects duplicate and malformed targets", () => {
   const failures = validatePortfolioManifest({
     schemaVersion: 1,
     title: "Invalid",
-    targets: [
+      targets: [
       { id: "same", title: "One", repository: ".", build: [{ name: "build", command: ["true"] }], scenarios: ["one"] },
-      { id: "same", title: "Two", repository: ".", build: [{ name: "", command: [], base: "elsewhere", environment: { Java_Home: "override" } }], scenarios: [] },
+      {
+        id: "same",
+        title: "Two",
+        repository: ".",
+        build: [{
+          name: "",
+          command: [],
+          base: "elsewhere",
+          repository: "../dependency",
+          environment: { Java_Home: "override" },
+        }],
+        artifacts: {
+          dependency: { path: "dependency.jar", base: "harness", repository: "../dependency" },
+        },
+        scenarios: [],
+      },
     ],
   });
   assert.ok(failures.some((failure) => failure.includes("duplicate target id")));
   assert.ok(failures.some((failure) => failure.includes("command must be")));
   assert.ok(failures.some((failure) => failure.includes("base must be")));
+  assert.ok(failures.some((failure) => failure.includes("cannot set both base and repository")));
   assert.ok(failures.some((failure) => failure.includes("must not override JAVA_HOME")));
   assert.ok(failures.some((failure) => failure.includes("scenarios must be")));
 });
 
-test("portfolio commands can run from repository and harness bases", async () => {
+test("portfolio commands can run from target, harness, and explicit sibling repositories", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ouro-portfolio-base-test-"));
   try {
     const repository = join(directory, "consumer");
     const repositoryMarker = join(directory, "repository-cwd.txt");
     const harnessMarker = join(directory, "harness-cwd.txt");
+    const dependency = join(directory, "dependency");
+    const dependencyMarker = join(directory, "dependency-cwd.txt");
     await mkdir(repository);
+    await mkdir(dependency);
     const config = join(directory, "portfolio.yaml");
     await writeFile(config, JSON.stringify({
       schemaVersion: 1,
@@ -74,6 +116,11 @@ test("portfolio commands can run from repository and harness bases", async () =>
         build: [
           { name: "repository", command: [process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(repositoryMarker)}, process.cwd())`] },
           { name: "harness", base: "harness", command: [process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(harnessMarker)}, process.cwd())`] },
+          {
+            name: "dependency",
+            repository: dependency,
+            command: [process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(dependencyMarker)}, process.cwd())`],
+          },
           { name: "stop before live scenario", command: [process.execPath, "-e", "process.exit(1)"] },
         ],
         scenarios: ["harness/action-contract"],
@@ -81,9 +128,13 @@ test("portfolio commands can run from repository and harness bases", async () =>
     }), "utf8");
 
     const report = await runPortfolio({ config, output: join(directory, "output"), keepRunDirectory: false, verbose: false });
-    assert.deepEqual(report.targets[0]?.builds.map((build) => build.status), ["passed", "passed", "failed"]);
+    assert.deepEqual(
+      report.targets[0]?.builds.map((build) => build.status),
+      ["passed", "passed", "passed", "failed"],
+    );
     assert.equal(await readFile(repositoryMarker, "utf8"), repository);
     assert.equal(await readFile(harnessMarker, "utf8"), process.cwd());
+    assert.equal(await readFile(dependencyMarker, "utf8"), dependency);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

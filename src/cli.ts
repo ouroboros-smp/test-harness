@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { clientExecutable } from "./client.js";
 import { errorMessage, HarnessError } from "./errors.js";
 import { issueCoverage, loadAllScenarios, loadPins, repositoryRoot, resolveScenario, TRACKED_ISSUES } from "./manifest.js";
@@ -12,6 +12,11 @@ import {
   loadProductionManifest,
   resolveProductionArtifacts,
 } from "./production-manifest.js";
+import {
+  auditRaidSafetyMatrix,
+  formatRaidSafetyMatrixAudit,
+  loadRaidSafetyMatrix,
+} from "./raid-safety-matrix.js";
 import { runScenario } from "./runner.js";
 import type { JsonPrimitive, RunOptions } from "./types.js";
 import { fileExists, withTimeout } from "./utils.js";
@@ -31,6 +36,7 @@ async function main(): Promise<void> {
     case "doctor": await doctor(args.flags.has("json")); return;
     case "portfolio": await portfolio(args); return;
     case "manifest-check": await manifestCheck(args); return;
+    case "raid-matrix": await raidMatrix(args); return;
     case "interop": await interop(args); return;
     case "run": {
       const reference = args.positionals[0];
@@ -52,6 +58,7 @@ Usage:
   ouro-harness doctor [--json]
   ouro-harness portfolio [options]
   ouro-harness manifest-check [options]
+  ouro-harness raid-matrix [--config PATH] [--require-complete] [--json]
   ouro-harness interop --mods-directory PATH [options]
   ouro-harness run <scenario-id|path> [options]
   ouro-harness smoke [options]
@@ -82,6 +89,10 @@ Production manifest options:
   --mods-directory PATH   Exact production jar directory to audit or run
   --strict                Treat missing third-party pins as errors in manifest-check
 
+Raid-safety matrix options:
+  --config PATH           Matrix definition (default: config/raid-safety-matrix.yaml)
+  --require-complete      Exit nonzero while any final case or production pin is blocked
+
 Interop also accepts --output, --cache, --dry-run, --keep-run-directory,
 and --verbose. It always requires third-party pins and refuses to launch while
 catalog/version drift or production-directory inventory errors remain.
@@ -96,15 +107,30 @@ async function listScenarios(asJson: boolean): Promise<void> {
 }
 
 async function validateScenarios(requireAllIssues: boolean, asJson: boolean): Promise<void> {
-  const entries = await loadAllScenarios();
-  const productionManifest = await loadProductionManifest();
+  const [entries, raidSafetyMatrix] = await Promise.all([
+    loadAllScenarios(),
+    loadRaidSafetyMatrix(),
+  ]);
+  const [productionManifest, portfolioManifest] = await Promise.all([
+    loadProductionManifest(resolve(repositoryRoot(), raidSafetyMatrix.production.manifest)),
+    loadPortfolioManifest(resolve(repositoryRoot(), raidSafetyMatrix.production.portfolio)),
+  ]);
   const ids = new Map<string, string[]>();
   for (const { path, scenario } of entries) ids.set(scenario.id, [...(ids.get(scenario.id) ?? []), path]);
   const duplicates = [...ids.entries()].filter(([, paths]) => paths.length > 1);
   const coverage = issueCoverage(entries.map(({ scenario }) => scenario));
+  const raidSafetyAudit = auditRaidSafetyMatrix(
+    raidSafetyMatrix,
+    entries.map(({ scenario }) => scenario),
+    productionManifest,
+    portfolioManifest,
+  );
   const failures = [
     ...duplicates.map(([id]) => `duplicate scenario id: ${id}`),
     ...(requireAllIssues ? coverage.missing.map((issue) => `GitHub issue #${issue} is not covered by a scenario`) : []),
+    ...raidSafetyAudit.findings
+      .filter((finding) => finding.severity === "error")
+      .map((finding) => `raid-safety ${finding.code}: ${finding.message}`),
   ];
   const output = {
     valid: failures.length === 0,
@@ -113,11 +139,13 @@ async function validateScenarios(requireAllIssues: boolean, asJson: boolean): Pr
     missingIssues: coverage.missing,
     productionMods: productionManifest.mods.length,
     enabledProductionMods: productionManifest.mods.filter((mod) => mod.enabled).length,
+    raidSafety: raidSafetyAudit,
     failures,
   };
   if (asJson) console.log(JSON.stringify(output, null, 2));
   else {
     console.log(`Validated ${entries.length} scenarios and ${output.enabledProductionMods}/${output.productionMods} enabled production mods; issue coverage ${output.coveredIssues.length}/${TRACKED_ISSUES.length}.`);
+    console.log(formatRaidSafetyMatrixAudit(raidSafetyAudit));
     for (const failure of failures) console.error(`- ${failure}`);
   }
   if (failures.length) throw new HarnessError("VALIDATION_FAILED", failures.join("; "));
@@ -214,6 +242,23 @@ async function manifestCheck(args: ParsedArgs): Promise<void> {
   });
   console.log(args.flags.has("json") ? JSON.stringify(audit, null, 2) : formatProductionManifestAudit(audit));
   if (!audit.ok) process.exitCode = 1;
+}
+
+async function raidMatrix(args: ParsedArgs): Promise<void> {
+  const matrix = await loadRaidSafetyMatrix(lastFlag(args, "config"));
+  const [entries, productionManifest, portfolioManifest] = await Promise.all([
+    loadAllScenarios(),
+    loadProductionManifest(resolve(repositoryRoot(), matrix.production.manifest)),
+    loadPortfolioManifest(resolve(repositoryRoot(), matrix.production.portfolio)),
+  ]);
+  const audit = auditRaidSafetyMatrix(
+    matrix,
+    entries.map(({ scenario }) => scenario),
+    productionManifest,
+    portfolioManifest,
+  );
+  console.log(args.flags.has("json") ? JSON.stringify(audit, null, 2) : formatRaidSafetyMatrixAudit(audit));
+  if (!audit.valid || (args.flags.has("require-complete") && !audit.ready)) process.exitCode = 1;
 }
 
 async function interop(args: ParsedArgs): Promise<void> {

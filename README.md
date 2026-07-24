@@ -132,6 +132,7 @@ events, and is never copied into consumer release jars.
 
 See [Architecture](docs/architecture.md), [Scenario Authoring](docs/scenarios.md),
 [Portfolio Catalog](docs/portfolio.md), [Production Manifest](docs/production-manifest.md),
+[Raid-safety Matrix](docs/raid-safety-matrix.md),
 [Organization Assessment](docs/portfolio-assessment.md), and
 [Issue Coverage](docs/issue-coverage.md)
 for the complete contracts.
