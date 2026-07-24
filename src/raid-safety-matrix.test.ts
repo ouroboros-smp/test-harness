@@ -48,6 +48,10 @@ test("raid-safety matrix preserves executable foundations without overstating fi
   assert.ok(audit.findings.some((finding) =>
     finding.code === "VERSION_DRIFT" && finding.artifact === "patrol"));
   assert.ok(audit.findings.some((finding) =>
+    finding.code === "PORTFOLIO_ARTIFACT_LOCATOR_MISMATCH"
+    && finding.entry === "patrol-conflict-contract"
+    && finding.artifact === "patrol"));
+  assert.ok(audit.findings.some((finding) =>
     finding.code === "PORTFOLIO_ARTIFACT_MISSING"
     && finding.entry === "civilization-provider-contracts"
     && finding.artifact === "rooms"));
@@ -144,8 +148,8 @@ test("raid-safety release gate can become ready only with aligned inventory and 
     obligations: ["released-jar raid-safety acceptance"],
   });
   Object.assign(futurePortfolio.targets.find((target) => target.id === "coffer")!.artifacts!, {
-    rooms: { path: "rooms.jar" },
-    kinship: { path: "kinship.jar" },
+    rooms: { path: "rooms-fabric-0.3.1.jar" },
+    kinship: { path: "kinship-fabric-0.4.0.jar" },
   });
   futurePortfolio.targets.push({
     id: "parcels",
@@ -154,7 +158,10 @@ test("raid-safety release gate can become ready only with aligned inventory and 
     testedVersion: "0.1.0",
     build: [{ name: "build", command: ["./gradlew", "check"] }],
     artifacts: Object.fromEntries(
-      futureMatrix.production.requiredArtifacts.map((artifact) => [artifact, { path: `${artifact}.jar` }]),
+      futureMatrix.production.requiredArtifacts.map((artifact) => [
+        artifact,
+        { path: futureProduction.mods.find((mod) => mod.id === artifact)!.file! },
+      ]),
     ),
     scenarios: [releaseScenario.id],
   });

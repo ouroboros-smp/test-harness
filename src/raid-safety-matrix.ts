@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { parse } from "yaml";
 import { HarnessError } from "./errors.js";
 import { repositoryRoot } from "./manifest.js";
@@ -7,6 +7,7 @@ import { raidSafetyMatrixSchemaErrors } from "./schema.js";
 import type {
   PortfolioManifest,
   ProductionManifest,
+  ProductionModSpec,
   RaidSafetyMatrix,
   RaidSafetyMatrixAudit,
   RaidSafetyMatrixEntry,
@@ -156,7 +157,9 @@ export function auditRaidSafetyMatrix(
       }
       for (const [artifact, slot] of Object.entries(reference.bindings)) {
         boundArtifacts.add(artifact);
-        if (!Object.hasOwn(scenario.artifacts ?? {}, slot)) {
+        const scenarioArtifact = scenario.artifacts?.[slot];
+        const targetArtifact = target?.artifacts?.[slot];
+        if (!scenarioArtifact) {
           findings.push({
             severity: "error",
             code: "UNKNOWN_SCENARIO_ARTIFACT",
@@ -164,7 +167,15 @@ export function auditRaidSafetyMatrix(
             artifact,
             message: `${reference.id} does not declare artifact slot ${slot}`,
           });
-        } else if (target && !Object.hasOwn(target.artifacts ?? {}, slot)) {
+        } else if (scenarioArtifact.required === false || scenarioArtifact.destination === "none") {
+          findings.push({
+            severity: "error",
+            code: "NON_REQUIRED_SCENARIO_ARTIFACT",
+            entry: entry.id,
+            artifact,
+            message: `${reference.id} artifact slot ${slot} is not a required installed jar`,
+          });
+        } else if (target && !targetArtifact) {
           findings.push({
             severity: "blocker",
             code: "PORTFOLIO_ARTIFACT_MISSING",
@@ -172,6 +183,17 @@ export function auditRaidSafetyMatrix(
             artifact,
             message: `${target.id} does not supply ${reference.id} artifact slot ${slot}`,
           });
+        } else {
+          const productionMod = productionMods.get(artifact);
+          if (productionMod && targetArtifact && !matchesProductionLocator(productionMod, targetArtifact.path)) {
+            findings.push({
+              severity: "blocker",
+              code: "PORTFOLIO_ARTIFACT_LOCATOR_MISMATCH",
+              entry: entry.id,
+              artifact,
+              message: `${target!.id} artifact slot ${slot} resolves ${basename(targetArtifact.path)}, not ${productionMod.file ?? productionMod.filePattern ?? "a pinned production jar"}`,
+            });
+          }
         }
       }
     }
@@ -375,6 +397,16 @@ function safeRelativeYaml(value: unknown): value is string {
     && /^[A-Za-z0-9_.\/-]+\.ya?ml$/.test(value)
     && !value.startsWith("/")
     && !value.split("/").includes("..");
+}
+
+function matchesProductionLocator(mod: ProductionModSpec, path: string): boolean {
+  const file = basename(path);
+  if (mod.file) return file.toLowerCase() === mod.file.toLowerCase();
+  if (!mod.filePattern) return false;
+  const expression = mod.filePattern
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replaceAll("\\*", ".*");
+  return new RegExp(`^${expression}$`, "i").test(file);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
