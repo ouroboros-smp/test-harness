@@ -138,9 +138,15 @@ targets:
         command: ["${platform.gradleWrapper}", clean, build]
         java: 25
         timeoutMinutes: 30
+      - name: Rooms inferred-hull harness adapter
+        base: harness
+        command: ["${platform.gradleWrapper}", :adapters:rooms:clean, :adapters:rooms:build]
+        java: 25
+        timeoutMinutes: 15
     artifacts:
       consumer: { path: platform/fabric/build/libs/rooms-fabric-0.3.1.jar }
-    scenarios: [rooms/runtime-acceptance]
+      rooms_adapter: { path: adapters/rooms/build/libs/ouro-harness-rooms-adapter-1.0.0.jar, base: harness }
+    scenarios: [rooms/runtime-acceptance, rooms/inferred-hull-contract]
 
   - id: watershed
     title: Watershed

@@ -1,0 +1,134 @@
+schemaVersion: 1
+id: rooms/inferred-hull-contract
+title: Rooms packaged inferred-hull publication, restart, and corruption contract
+description: Discovers two adjacent real rooms through player packets, consumes their revision-pinned canonical hull through a harness-only ObjectShare reader, proves restart hydration, and verifies corrupt persisted output fails closed.
+issues: [97]
+tags: [fabric, minecraft-26.2, rooms, public-api, sqlite, restart, corruption]
+artifacts:
+  consumer: { required: true, description: Packaged Rooms Fabric server jar }
+  rooms_adapter: { required: true, description: Harness-only structure-hulls/v1 reader }
+clients:
+  - { name: builder, username: HullBuilder, gameMode: creative }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+steps:
+  - id: start
+    name: Boot the packaged jar and verify the hull protocol is installed
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op HullBuilder" }
+      - { type: adapter.invoke, adapter: rooms, operation: protocol, as: hull-protocol }
+    assertions:
+      - { type: value.json, value: hull-protocol, jsonPath: installed, expected: true }
+      - { type: value.json, value: hull-protocol, jsonPath: protocolVersion, expected: 1 }
+      - { type: value.json, value: hull-protocol, jsonPath: eventSchemaVersion, expected: 1 }
+
+  - id: discover
+    name: Discover two adjacent exact rooms and their inferred structure hull
+    timeoutSeconds: 180
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-3 ~3 ~-3 ~3 ~3 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-2 ~ ~-2 ~2 ~2 ~2 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-3 ~ ~-3 ~-3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~3 ~ ~-3 ~3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-2 ~ ~-3 ~2 ~2 ~-3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-2 ~ ~3 ~2 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-1 ~ ~4 ~1 ~2 ~5 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~ ~ ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~ ~1 ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~1 ~ ~ minecraft:chest" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~-1 ~ ~1 minecraft:red_bed[part=foot,facing=east,occupied=false]" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~ ~ ~1 minecraft:red_bed[part=head,facing=east,occupied=false]" } }
+      - { type: console.command, command: "item replace entity HullBuilder hotbar.0 with minecraft:oak_door 1" }
+      - type: wait.until
+        assertion: { type: client.state, client: builder, path: inventory, operator: contains, expected: minecraft:oak_door }
+      - { type: client.select_hotbar, client: builder, slot: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.look, client: builder, yaw: 0, pitch: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.place_block, client: builder, relative: true, x: 0, y: -1, z: 3 }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM rooms", jsonPath: "0.count", operator: gte, expected: 1 }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run tp HullBuilder ~7 ~ ~" } }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-3 ~3 ~-3 ~3 ~3 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-2 ~ ~-2 ~2 ~2 ~2 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-3 ~ ~-3 ~-3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~3 ~ ~-3 ~3 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-2 ~ ~-3 ~2 ~2 ~-3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-2 ~ ~3 ~2 ~2 ~3 minecraft:stone" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run fill ~-1 ~ ~4 ~1 ~2 ~5 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~ ~ ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~ ~1 ~3 minecraft:air" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~1 ~ ~ minecraft:chest" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~-1 ~ ~1 minecraft:red_bed[part=foot,facing=east,occupied=false]" } }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at HullBuilder run setblock ~ ~ ~1 minecraft:red_bed[part=head,facing=east,occupied=false]" } }
+      - { type: console.command, command: "item replace entity HullBuilder hotbar.0 with minecraft:oak_door 1" }
+      - type: wait.until
+        assertion: { type: client.state, client: builder, path: inventory, operator: contains, expected: minecraft:oak_door }
+      - { type: client.select_hotbar, client: builder, slot: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.look, client: builder, yaw: 0, pitch: 0 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: client.place_block, client: builder, relative: true, x: 0, y: -1, z: 3 }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structures", jsonPath: "0.count", operator: gte, expected: 1 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT id FROM structures ORDER BY id LIMIT 1", as: structure-row }
+      - { type: value.extract, value: structure-row, jsonPath: "0.id", as: structure-id }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "${structure-id}" }, jsonPath: available, expected: true }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "${structure-id}" }, as: before-restart }
+      - { type: snapshot.capture, name: before-restart, value: before-restart }
+    assertions:
+      - { type: value.json, value: before-restart, jsonPath: ruleVersion, expected: 1 }
+      - { type: value.json, value: before-restart, jsonPath: sourceRevision, operator: gte, expected: 1 }
+      - { type: value.json, value: before-restart, jsonPath: spanCount, operator: gt, expected: 0 }
+      - { type: value.json, value: before-restart, jsonPath: cellCount, operator: gt, expected: 0 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structure_hulls", jsonPath: "0.count", expected: 1 }
+
+  - id: restart
+    name: Hydrate the identical revision-pinned hull after a clean restart
+    timeoutSeconds: 360
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "${structure-id}" }, as: after-restart }
+      - { type: snapshot.capture, name: after-restart, value: after-restart }
+    assertions:
+      - { type: snapshot.equals, left: before-restart, right: after-restart }
+      - { type: log.absent, pattern: "inferred hull refresh failed|structure hull ObjectShare key is already owned" }
+
+  - id: corrupt
+    name: Reject and canonically rebuild a corrupt persisted hull on the next packaged-jar boot
+    timeoutSeconds: 360
+    actions:
+      - { type: server.stop }
+      - type: process.exec
+        command: [node, scripts/corrupt-rooms-hull.mjs, "${run.directory}/config/rooms/rooms.db", "${structure-id}"]
+        as: corruption
+      - { type: server.start }
+      - type: wait.until
+        timeoutMs: 30000
+        intervalMs: 250
+        assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT length(payload) AS bytes FROM structure_hulls WHERE structure_id = ?", parameters: ["${structure-id}"], jsonPath: "0.bytes", operator: gt, expected: 3 }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "${structure-id}" }, as: after-corruption }
+      - { type: snapshot.capture, name: after-corruption, value: after-corruption }
+    assertions:
+      - { type: value.json, value: after-corruption, jsonPath: available, expected: true }
+      - { type: snapshot.equals, left: before-restart, right: after-corruption }
+      - { type: log.absent, pattern: "OutOfMemoryError|BufferUnderflowException|NegativeArraySizeException" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }
