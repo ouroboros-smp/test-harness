@@ -114,14 +114,17 @@ runs:
           index=$((index + 1))
         done <<< "$INPUT_DEPENDENCIES"
         named_file="$output/.named-artifacts"
-        node --input-type=module -e '
+        if ! node --input-type=module -e '
           import { parseNamedArtifacts } from "./dist/action-inputs.js";
           const artifacts = await parseNamedArtifacts(
             process.env.INPUT_NAMED_ARTIFACTS ?? "",
             process.env.GITHUB_WORKSPACE ?? process.cwd(),
           );
           for (const artifact of artifacts) console.log(`${artifact.name}=${artifact.path}`);
-        ' > "$named_file"
+        ' > "$named_file"; then
+          rm -f "$named_file"
+          exit 1
+        fi
         while IFS= read -r artifact; do
           [[ -z "$artifact" ]] && continue
           args+=(--artifact "$artifact")

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -669,6 +669,12 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
 
 export async function deleteConfinedFile(root: string, configuredPath: string): Promise<string> {
   const target = confinedPath(root, configuredPath);
+  const canonicalRoot = await realpath(root);
+  const canonicalTarget = await realpath(target);
+  const canonicalRelation = relative(canonicalRoot, canonicalTarget);
+  if (canonicalRelation === ".." || canonicalRelation.startsWith(`..${sep}`) || isAbsolute(canonicalRelation)) {
+    throw new HarnessError("PATH_ESCAPE", `Path escapes run directory through a symbolic link: ${configuredPath}`);
+  }
   await rm(target);
   return target;
 }

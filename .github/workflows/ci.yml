@@ -2,8 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +14,6 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     steps:
@@ -26,6 +24,7 @@ jobs:
           repository: ouroboros-smp/coffer
           path: consumer
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
@@ -40,6 +39,7 @@ jobs:
           toolchain: nightly-2026-07-13
           components: rustfmt, clippy
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm test
       - run: npm run fmt:client
       - run: npm run lint:client
@@ -52,14 +52,13 @@ jobs:
       - name: Run Coffer adapter Java tests
         run: >-
           ./gradlew
-          -Pcoffer_jar=consumer/fabric/build/libs/coffer-fabric-server-1.3.0.jar
-          -Pcoffer_core_jar=consumer/core/build/libs/core-1.3.0.jar
+          -Pcoffer_jar=consumer/fabric/build/libs/coffer-fabric-server-0.1.5.jar
+          -Pcoffer_core_jar=consumer/core/build/libs/core-0.1.5.jar
           :adapters:coffer:test --no-daemon
       - run: npm run validate
       - run: node dist/cli.js doctor
 
   live-smoke:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: verify
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 30

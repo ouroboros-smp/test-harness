@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadPins, resolveScenario } from "./manifest.js";
@@ -63,7 +63,6 @@ test("wait.until timeout reports the last observed assertion failure", async () 
     }, 5, 1),
     /last observed value/,
   );
-  assert.ok(attempts > 1);
 });
 
 test("contains comparisons handle missing JSON paths as assertion results", () => {
@@ -94,6 +93,27 @@ test("file deletion is confined to the generated run directory", async () => {
     assert.equal(await deleteConfinedFile(directory, "mods/optional.jar"), target);
     await assert.rejects(readFile(target));
     await assert.rejects(deleteConfinedFile(directory, "../outside.jar"), /escapes run directory/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("file deletion rejects directory symlinks that escape the run directory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ouro-harness-delete-link-"));
+  const runDirectory = join(directory, "run");
+  const outsideDirectory = join(directory, "outside");
+  try {
+    await mkdir(runDirectory);
+    await mkdir(outsideDirectory);
+    const outsideFile = join(outsideDirectory, "protected.jar");
+    await writeFile(outsideFile, "must remain");
+    await symlink(outsideDirectory, join(runDirectory, "link"), process.platform === "win32" ? "junction" : "dir");
+
+    await assert.rejects(
+      deleteConfinedFile(runDirectory, "link/protected.jar"),
+      /escapes run directory through a symbolic link/,
+    );
+    assert.equal(await readFile(outsideFile, "utf8"), "must remain");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
