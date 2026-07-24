@@ -310,6 +310,16 @@ steps:
           jsonPath: combatTagged
           expected: false
       - { type: adapter.invoke, adapter: patrol, operation: authority-outage-start, args: {}, as: outage-start }
+      # The injected listener failure must surface as a Patrol warning rather than escaping the
+      # listener and killing the subsystem. This is the single occurrence the ephemeral_restart
+      # health gate excludes, so pin it here: without this the exclusion would silently cover a
+      # regression that stopped reporting persistence failures at all.
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: log.present
+          pattern: "Patrol conflict persistence listener failed: injected harness persistence failure"
       - { type: client.command, client: afk, command: "afk authority-outage" }
       - { type: wait.ticks, ticks: 3 }
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: unavailable-status }
@@ -371,7 +381,11 @@ steps:
       - { type: value.json, value: restart-reentry, jsonPath: status.afk, expected: true }
       - { type: client.state, client: afk, path: tabList, operator: not_contains, expected: "[AFK" }
       - { type: client.event, client: afk, event: message, pattern: "automatic idle AFK is off for this connection" }
-      - { type: log.absent, pattern: "Patrol Fabric failed to start|Patrol scheduled task failed|Patrol conflict persistence listener failed" }
+      # authority_fail_closed deliberately makes a state listener throw, and the log monitor keeps
+      # its lines across server.restart, so that one warning is still buffered here. Exclude only
+      # the injected cause by name: any other persistence listener failure, and both other
+      # patterns, still fail this gate.
+      - { type: log.absent, pattern: "Patrol Fabric failed to start|Patrol scheduled task failed|Patrol conflict persistence listener failed(?!: injected harness persistence failure)" }
 
   - id: auto_kick
     name: Kick a non-exempt idle AFK player on a dedicated server
