@@ -54,10 +54,9 @@ test("raid-safety matrix preserves executable foundations without overstating fi
     finding.code === "PORTFOLIO_ARTIFACT_LOCATOR_MISMATCH"
     && finding.entry === "patrol-conflict-contract"
     && finding.artifact === "patrol"));
-  assert.ok(audit.findings.some((finding) =>
+  assert.ok(!audit.findings.some((finding) =>
     finding.code === "PORTFOLIO_ARTIFACT_MISSING"
-    && finding.entry === "civilization-provider-contracts"
-    && finding.artifact === "rooms"));
+    && finding.entry === "civilization-provider-contracts"));
 });
 
 test("raid-safety matrix rejects placeholder scenarios and unowned blockers", () => {

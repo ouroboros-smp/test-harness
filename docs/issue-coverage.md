@@ -68,8 +68,10 @@ now executable foundations. The matrix links remaining blocked final cases to
 Patrol #38, Rooms #97, Parcels #5, or harness #47 and rejects scenario ids on
 blocked cases.
 Its executable foundations reference only maintained scenarios that run
-against merged jars. The matrix also detects missing portfolio artifact
-bindings, currently tracked by
+against merged jars. Portfolio commands and artifact locators can name explicit
+sibling repositories, so the Coffer target now builds and binds Rooms, Kinship,
+and WildAnimalBalancer without relying on ambient prebuilt jars. This resolves
+the artifact-satisfiability gap tracked by
 [#57](https://github.com/ouroboros-smp/test-harness/issues/57). Run
 `node dist/cli.js raid-matrix --require-complete` for the strict
 production-version release gate. Issue #52 is now in `TRACKED_ISSUES` because

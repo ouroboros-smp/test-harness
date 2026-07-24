@@ -141,6 +141,7 @@ export interface PortfolioCommandSpec {
   name: string;
   command: string[];
   base?: "repository" | "harness";
+  repository?: string;
   java?: number;
   environment?: Record<string, string | number | boolean>;
   timeoutMinutes?: number;
@@ -149,6 +150,7 @@ export interface PortfolioCommandSpec {
 export interface PortfolioArtifactSpec {
   path: string;
   base?: "repository" | "harness";
+  repository?: string;
 }
 
 export interface PortfolioTargetSpec {

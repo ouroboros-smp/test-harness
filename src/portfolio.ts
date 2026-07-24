@@ -87,6 +87,13 @@ export function validatePortfolioManifest(value: unknown): string[] {
       if (command.base !== undefined && command.base !== "repository" && command.base !== "harness") {
         failures.push(`targets[${index}].build[${commandIndex}].base must be repository or harness`);
       }
+      if (command.repository !== undefined
+          && (typeof command.repository !== "string" || !command.repository)) {
+        failures.push(`targets[${index}].build[${commandIndex}].repository must be a non-empty string`);
+      }
+      if (command.base !== undefined && command.repository !== undefined) {
+        failures.push(`targets[${index}].build[${commandIndex}] cannot set both base and repository`);
+      }
       if (command.java !== undefined && (!Number.isInteger(command.java) || Number(command.java) < 1)) failures.push(`targets[${index}].build[${commandIndex}].java must be a positive integer`);
       if (command.timeoutMinutes !== undefined && (typeof command.timeoutMinutes !== "number" || command.timeoutMinutes <= 0)) failures.push(`targets[${index}].build[${commandIndex}].timeoutMinutes must be positive`);
       if (command.environment !== undefined && !isPrimitiveRecord(command.environment, false)) failures.push(`targets[${index}].build[${commandIndex}].environment must contain string, number, or boolean values`);
@@ -113,6 +120,13 @@ export function validatePortfolioManifest(value: unknown): string[] {
         const artifact = rawArtifact as Record<string, unknown>;
         if (typeof artifact.path !== "string" || !artifact.path) failures.push(`targets[${index}].artifacts.${name}.path is required`);
         if (artifact.base !== undefined && artifact.base !== "repository" && artifact.base !== "harness") failures.push(`targets[${index}].artifacts.${name}.base must be repository or harness`);
+        if (artifact.repository !== undefined
+            && (typeof artifact.repository !== "string" || !artifact.repository)) {
+          failures.push(`targets[${index}].artifacts.${name}.repository must be a non-empty string`);
+        }
+        if (artifact.base !== undefined && artifact.repository !== undefined) {
+          failures.push(`targets[${index}].artifacts.${name} cannot set both base and repository`);
+        }
       }
     }
     if (!isPrimitiveRecord(target.variables)) failures.push(`targets[${index}].variables must contain only primitive values`);
@@ -166,16 +180,20 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
     for (const [index, command] of target.build.entries()) {
       if (buildFailed) break;
       const log = join(targetDirectory, `build-${String(index + 1).padStart(2, "0")}-${safeSegment(command.name)}.log`);
-      const workingDirectory = command.base === "harness" ? repositoryRoot() : repository;
+      const workingDirectory = command.repository
+        ? resolve(repositoryRoot(), command.repository)
+        : command.base === "harness" ? repositoryRoot() : repository;
       const result = await runBuild(command, workingDirectory, log, options.verbose);
       builds.push(result);
       if (result.status === "failed") buildFailed = true;
     }
 
-    const artifacts = Object.fromEntries(Object.entries(target.artifacts ?? {}).map(([name, artifact]) => [
-      name,
-      resolve(artifact.base === "harness" ? repositoryRoot() : repository, artifact.path),
-    ]));
+    const artifacts = Object.fromEntries(Object.entries(target.artifacts ?? {}).map(([name, artifact]) => {
+      const artifactRepository = artifact.repository
+        ? resolve(repositoryRoot(), artifact.repository)
+        : artifact.base === "harness" ? repositoryRoot() : repository;
+      return [name, resolve(artifactRepository, artifact.path)];
+    }));
     const scenarios: PortfolioScenarioResult[] = [];
     for (const reference of target.scenarios) {
       if (buildFailed) {
