@@ -52,6 +52,7 @@ steps:
             }
           }
       - { type: server.start }
+      - { type: console.command, command: "gamerule naturalRegeneration false" }
       - { type: console.command, command: "op PatrolAfk" }
       - { type: client.command, client: opponent, command: "noafk" }
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: initial-afk }
