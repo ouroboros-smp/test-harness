@@ -232,6 +232,29 @@ class PatrolConflictV2ClientTest {
         assertEquals(0, events.getAsJsonArray("errors").size());
     }
 
+    @Test
+    void cumulativeBudgetsBoundReplayResponsesAndRetainedLiveEvidence() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        List<Map<String, Object>> replay = new ArrayList<>();
+        for (long revision = 1; revision <= 600; revision++) {
+            Map<String, Object> event = event(revision, "hostile", AGGRESSOR);
+            event.put("extension", "x".repeat(16_384));
+            replay.add(event);
+        }
+        PatrolConflictV2Client client = new PatrolConflictV2Client(
+                () -> protocol(status(600L), replay, subscriber));
+
+        JsonObject replayResult = client.replay(AGGRESSOR, 0L);
+        for (Map<String, Object> event : replay) subscriber.get().accept(event);
+        JsonObject liveResult = client.events();
+
+        assertEquals("invalid_replay", replayResult.get("error").getAsString());
+        assertTrue(replayResult.get("count").getAsInt() < replay.size());
+        assertTrue(liveResult.get("count").getAsInt() < replay.size());
+        assertTrue(liveResult.get("truncated").getAsLong() > 0L);
+        assertEquals(0, liveResult.getAsJsonArray("errors").size());
+    }
+
     private static Map<String, Object> protocol(
             Map<String, Object> status,
             List<Map<String, Object>> replay,

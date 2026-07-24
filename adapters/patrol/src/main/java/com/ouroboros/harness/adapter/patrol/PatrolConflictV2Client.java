@@ -35,10 +35,14 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private static final int MAX_LIVE_ERRORS = 64;
     private static final int MAX_JSON_COLLECTION = 4_096;
     private static final int MAX_JSON_DEPTH = 16;
-    private static final int MAX_JSON_NODES = 16_384;
+    private static final int MAX_JSON_NODES = 1_024;
+    private static final int MAX_JSON_CHARACTERS = 65_536;
     private static final int MAX_JSON_STRING = 16_384;
     private static final int MAX_JSON_KEY = 1_024;
     private static final int MAX_JSON_NUMBER = 128;
+    private static final int MAX_SERIALIZED_EVENT_CHARACTERS = 131_072;
+    private static final int MAX_EVIDENCE_NODES = 262_144;
+    private static final int MAX_EVIDENCE_CHARACTERS = 8 * 1_024 * 1_024;
     private static final Set<String> STATES = Set.of("clear", "wanted", "cooling");
     private static final Set<String> ACTIONS = Set.of(
             "hostile", "wanted", "cooling", "cleared", "pardoned",
@@ -48,11 +52,12 @@ public final class PatrolConflictV2Client implements AutoCloseable {
 
     private final Supplier<Object> providerSupplier;
     private final Object evidenceLock = new Object();
-    private final ArrayDeque<JsonObject> liveEvents = new ArrayDeque<>();
+    private final ArrayDeque<LiveEvent> liveEvents = new ArrayDeque<>();
     private final ArrayDeque<String> liveErrors = new ArrayDeque<>();
     private Object subscribedProtocol;
     private AutoCloseable subscription;
     private long truncatedLiveEvents;
+    private int liveEventCharacters;
 
     public PatrolConflictV2Client(Supplier<Object> providerSupplier) {
         this.providerSupplier = java.util.Objects.requireNonNull(
@@ -164,7 +169,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         JsonArray errors = new JsonArray();
         long truncated;
         synchronized (evidenceLock) {
-            liveEvents.forEach(event -> events.add(event.deepCopy()));
+            liveEvents.forEach(event -> events.add(event.value().deepCopy()));
             liveErrors.forEach(errors::add);
             truncated = truncatedLiveEvents;
         }
@@ -180,6 +185,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             liveEvents.clear();
             liveErrors.clear();
             truncatedLiveEvents = 0L;
+            liveEventCharacters = 0;
         }
         JsonObject result = events();
         result.addProperty("cleared", true);
@@ -195,6 +201,8 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         boolean withinBound = true;
         long maximumRevision = afterRevision;
         String detail = null;
+        JsonBudget evidenceBudget =
+                new JsonBudget(MAX_EVIDENCE_NODES, MAX_EVIDENCE_CHARACTERS);
         if (!(raw instanceof List<?> list)) {
             detail = "replay result must be a list";
         } else {
@@ -213,7 +221,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                     aggregateMatches &= identity.aggregateId().equals(playerId);
                     previous = Math.max(previous, identity.revision());
                     maximumRevision = Math.max(maximumRevision, identity.revision());
-                    events.add(toJson(event, 0));
+                    events.add(toJson(event, 0, evidenceBudget));
                 } catch (ContractFailure failure) {
                     detail = failure.getMessage();
                     aggregateMatches = false;
@@ -297,12 +305,21 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         try {
             validateEvent(event, null);
             JsonObject copy = toJson(event, 0).getAsJsonObject();
+            int characters = copy.toString().length();
+            if (characters > MAX_SERIALIZED_EVENT_CHARACTERS) {
+                throw new ContractFailure(true, "invalid_event",
+                        "serialized event exceeds size bound");
+            }
             synchronized (evidenceLock) {
-                if (liveEvents.size() >= MAX_LIVE_EVENTS) {
-                    liveEvents.removeFirst();
+                while (!liveEvents.isEmpty()
+                        && (liveEvents.size() >= MAX_LIVE_EVENTS
+                        || liveEventCharacters + characters > MAX_EVIDENCE_CHARACTERS)) {
+                    LiveEvent removed = liveEvents.removeFirst();
+                    liveEventCharacters -= removed.characters();
                     truncatedLiveEvents++;
                 }
-                liveEvents.addLast(copy);
+                liveEvents.addLast(new LiveEvent(copy, characters));
+                liveEventCharacters += characters;
             }
         } catch (RuntimeException failure) {
             recordLiveError(message(failure));
@@ -662,22 +679,21 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     }
 
     private static JsonElement toJson(Object raw, int depth) {
-        return toJson(raw, depth, new JsonBudget(MAX_JSON_NODES));
+        return toJson(raw, depth, new JsonBudget(MAX_JSON_NODES, MAX_JSON_CHARACTERS));
     }
 
     private static JsonElement toJson(Object raw, int depth, JsonBudget budget) {
         if (depth > MAX_JSON_DEPTH) {
             throw new ContractFailure(true, "invalid_json", "peer JSON exceeds depth bound");
         }
-        if (!budget.claim()) {
-            throw new ContractFailure(true, "invalid_json", "peer JSON exceeds node bound");
-        }
+        budget.claimNode();
         if (raw == null) return JsonNull.INSTANCE;
         if (raw instanceof String string) {
             if (string.length() > MAX_JSON_STRING) {
                 throw new ContractFailure(true, "invalid_json",
                         "peer JSON string exceeds size bound");
             }
+            budget.claimCharacters(string.length());
             return new JsonPrimitive(string);
         }
         if (raw instanceof Boolean bool) return new JsonPrimitive(bool);
@@ -687,9 +703,13 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                     || !Double.isFinite(number.doubleValue())) {
                 throw new ContractFailure(true, "invalid_json", "peer JSON number is not finite");
             }
-            return new JsonPrimitive(number);
+            budget.claimCharacters(representation.length());
+            return new JsonPrimitive(new BigDecimal(representation));
         }
-        if (raw instanceof UUID uuid) return new JsonPrimitive(uuid.toString());
+        if (raw instanceof UUID uuid) {
+            budget.claimCharacters(36);
+            return new JsonPrimitive(uuid.toString());
+        }
         if (raw instanceof Map<?, ?> map) {
             if (map.size() > MAX_JSON_COLLECTION) {
                 throw new ContractFailure(true, "invalid_json",
@@ -706,6 +726,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                     throw new ContractFailure(true, "invalid_json",
                             "peer JSON map exceeds size bound");
                 }
+                budget.claimCharacters(key.length());
                 result.add(key, toJson(entry.getValue(), depth + 1, budget));
             }
             return result;
@@ -755,6 +776,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         synchronized (evidenceLock) {
             liveEvents.clear();
             liveErrors.clear();
+            liveEventCharacters = 0;
         }
     }
 
@@ -767,15 +789,31 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private record EventIdentity(UUID eventId, UUID aggregateId, long revision) {
     }
 
-    private static final class JsonBudget {
-        private int remaining;
+    private record LiveEvent(JsonObject value, int characters) {
+    }
 
-        private JsonBudget(int remaining) {
-            this.remaining = remaining;
+    private static final class JsonBudget {
+        private int remainingNodes;
+        private int remainingCharacters;
+
+        private JsonBudget(int remainingNodes, int remainingCharacters) {
+            this.remainingNodes = remainingNodes;
+            this.remainingCharacters = remainingCharacters;
         }
 
-        private boolean claim() {
-            return remaining-- > 0;
+        private void claimNode() {
+            if (remainingNodes-- <= 0) {
+                throw new ContractFailure(true, "invalid_json",
+                        "peer JSON exceeds node bound");
+            }
+        }
+
+        private void claimCharacters(int characters) {
+            remainingCharacters -= characters;
+            if (remainingCharacters < 0) {
+                throw new ContractFailure(true, "invalid_json",
+                        "peer JSON exceeds character bound");
+            }
         }
     }
 
