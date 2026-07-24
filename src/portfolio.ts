@@ -16,7 +16,7 @@ import type {
   PortfolioTargetResult,
   RunOptions,
 } from "./types.js";
-import { elapsedTimer, ensureDirectory, interpolate } from "./utils.js";
+import { elapsedTimer, ensureDirectory, formatDuration, interpolate } from "./utils.js";
 
 export interface PortfolioRunOptions {
   config?: string;
@@ -458,12 +458,6 @@ function renderPortfolioJunit(report: PortfolioReport): string {
 
 function safeSegment(value: string): string {
   return value.replaceAll(/[^a-zA-Z0-9._-]+/g, "-");
-}
-
-function formatDuration(milliseconds: number): string {
-  if (milliseconds < 1_000) return `${Math.round(milliseconds)}ms`;
-  if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(1)}s`;
-  return `${Math.floor(milliseconds / 60_000)}m ${Math.round((milliseconds % 60_000) / 1_000)}s`;
 }
 
 function href(directory: string, path: string): string {
