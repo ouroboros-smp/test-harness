@@ -41,6 +41,7 @@ jobs:
       - run: npm run test:client
       - run: npm run build:client
       - run: npm run test:bridge
+      - run: npm run test:patrol-adapter
       - run: npm run validate
       - run: node dist/cli.js doctor
 

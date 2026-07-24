@@ -106,9 +106,17 @@ targets:
       - name: Patrol Fabric clean build and tests
         command: ["${platform.gradleWrapper}", :core:clean, :fabric-net:clean, :fabric:clean, :fabric-client:clean, :core:build, :fabric-net:build, :fabric:build, :fabric-client:build]
         java: 25
+      - name: Patrol conflict-v2 harness adapter
+        base: harness
+        command: ["${platform.gradleWrapper}", :adapters:patrol:clean, :adapters:patrol:build]
+        java: 25
+        timeoutMinutes: 15
     artifacts:
       patrol: { path: fabric/build/libs/patrol-fabric-1.2.1.jar }
-    scenarios: [patrol/runtime-acceptance]
+      patrol_adapter: { path: adapters/patrol/build/libs/ouro-harness-patrol-adapter-1.0.0.jar, base: harness }
+    scenarios:
+      - patrol/runtime-acceptance
+      - patrol/conflict-v2-contract
 
   - id: rooms
     title: Rooms and Structures

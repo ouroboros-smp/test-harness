@@ -17,7 +17,7 @@ harness-only bridge on 2026-07-18.
 | #17 | KeepGear ten-case release acceptance suite | `keepgear/acceptance` |
 | #18–#22 | Coffer Fabric placement, double chest, trust/access policy, API, commands, packaging/interoperability, and restart persistence | `coffer/runtime-acceptance` |
 | #24 | Mehen MariaDB/Redis ban enforcement, expiry, pardon, and restart persistence | `mehen/governance-acceptance` |
-| #25 | Patrol commands, enforcer lifecycle, reload, and restart | `patrol/runtime-acceptance` |
+| #25 | Patrol commands, enforcer lifecycle, conflict-v2 attribution/replay, reload, persistence, and restart | `patrol/runtime-acceptance`, `patrol/conflict-v2-contract` |
 | #26 | Watershed spring commands, save, restart persistence, and removal | `watershed/spring-lifecycle` |
 | #27 | WildAnimalBalancer census, bounded top-up, metrics, reload, and persistence | `wildanimalbalancer/population-acceptance` |
 | #28 | OuroMetrics 1.21.11 exporter, config, HTTP metrics, and restart lifecycle | `ourometrics/exporter-lifecycle` |
