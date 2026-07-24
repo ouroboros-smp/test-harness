@@ -1,9 +1,9 @@
 schemaVersion: 1
 id: parcels/offline-protection
 title: Parcels released-jar defender offline protection lifecycle
-description: Proves the packaged Parcels jar preserves the disabled default, arms a direct claim for an offline defender, cancels protection synchronously on reconnect, restores durable state without exposing it while Patrol is unavailable, and supports rollback.
+description: Proves the packaged Parcels jar preserves the disabled default, arms a direct claim for an offline defender, cancels protection synchronously on reconnect, restores durable state without exposing it while Patrol is unavailable, arms and cancels a Kinship group claim through verified-member presence, retains armed deadlines through a Kinship session-authorization drop, and supports rollback.
 issues: [52]
-tags: [parcels, offline-protection, patrol-v3, real-client, persistence, restart, rollback]
+tags: [parcels, offline-protection, patrol-v3, kinship-v2, real-client, persistence, restart, rollback]
 artifacts:
   consumer: { required: true, description: Packaged Parcels Fabric server jar }
   parcels_adapter: { required: true, description: Harness-only deterministic Patrol v3 and claim fixture adapter }
@@ -169,6 +169,93 @@ steps:
 
   - id: stop_recovered
     name: Stop after provider recovery
+    actions:
+      - { type: server.stop }
+
+  - id: kin_seed
+    name: Seed a Kinship group claim beside the direct claim
+    actions:
+      - { type: server.start }
+      - type: adapter.invoke
+        adapter: parcels
+        operation: seed-group-claim
+        args:
+          structureId: "00000000-0000-0000-0000-000000000601"
+          roomId: "00000000-0000-0000-0000-000000000602"
+          memberUsername: ParcelOwner
+          x: 4
+          y: 64
+          z: 4
+        as: seeded-group-claim
+      - { type: server.stop }
+    assertions:
+      - { type: value.json, value: seeded-group-claim, jsonPath: groupPrincipal, expected: "kinship:family-42" }
+      - { type: value.json, value: seeded-group-claim, jsonPath: memberId, expected: "2cd87c18-2bef-3de3-87e8-12f801f29421" }
+
+  - id: kin_online
+    name: Keep the group claim online-raideable while a verified member defends
+    actions:
+      - { type: server.start }
+      - { type: adapter.invoke, adapter: parcels, operation: kinship-session, args: { playerUsername: ParcelOwner, available: true }, as: kin-session-on }
+      - { type: client.connect, client: owner }
+      - { type: client.connect, client: raider }
+      - { type: console.command, command: "setblock 4 64 4 minecraft:glass" }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, jsonPath: bound, expected: false }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, as: group-online }
+    assertions:
+      - { type: value.json, value: kin-session-on, jsonPath: available, expected: true }
+      - { type: value.json, value: kin-session-on, jsonPath: groupPrincipal, expected: "kinship:family-42" }
+      - { type: value.json, value: group-online, jsonPath: break, expected: true }
+      - { type: value.json, value: group-online, jsonPath: place, expected: true }
+      - { type: value.json, value: group-online, jsonPath: explosion, expected: true }
+
+  - id: kin_absent
+    name: Arm the group claim when the last verified member disconnects
+    actions:
+      - { type: client.disconnect, client: owner }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, jsonPath: bound, expected: true }
+      - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], as: group-armed-row }
+      - { type: snapshot.capture, name: group-armed-deadlines, value: group-armed-row }
+    assertions:
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:glass }
+      - { type: value.json, value: group-armed-row, jsonPath: "0.armed", expected: 1 }
+
+  - id: kin_session_drop
+    name: Retain armed protection when Kinship drops session authorization
+    actions:
+      - { type: adapter.invoke, adapter: parcels, operation: kinship-session, args: { playerUsername: ParcelOwner, available: false }, as: kin-session-off }
+      - { type: wait.ticks, ticks: 20 }
+      - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, as: group-session-drop }
+      - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], as: group-dropped-row }
+      - { type: snapshot.capture, name: group-dropped-deadlines, value: group-dropped-row }
+    assertions:
+      - { type: value.json, value: kin-session-off, jsonPath: available, expected: false }
+      - { type: value.json, value: group-session-drop, jsonPath: break, expected: false }
+      - { type: value.json, value: group-session-drop, jsonPath: explosion, expected: false }
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:glass }
+      - { type: snapshot.equals, left: group-armed-deadlines, right: group-dropped-deadlines }
+
+  - id: kin_reconnect
+    name: Cancel group protection when the verified member reconnects
+    actions:
+      - { type: adapter.invoke, adapter: parcels, operation: kinship-session, args: { playerUsername: ParcelOwner, available: true }, as: kin-session-restored }
+      - { type: client.connect, client: owner }
+      - type: wait.until
+        assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 4, y: 64, z: 4, player: ParcelRaider }, jsonPath: bound, expected: false }
+      - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:air }
+    assertions:
+      - { type: value.json, value: kin-session-restored, jsonPath: available, expected: true }
+
+  - id: kin_stop
+    name: Stop after Kinship group coverage
     actions:
       - { type: server.stop }
 
