@@ -61,6 +61,10 @@ class CofferAdapterJsonTest {
                 "provider-control",
                 object("provider", "structures", "mode", "resident", "player", "OnlinePlayer")));
         assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(
+                "provider-control", object("provider", "protection", "mode", "deny-break")));
+        assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(
+                "provider-control", object("provider", "protection", "mode", "throwing")));
+        assertDoesNotThrow(() -> CofferHarnessAdapterMod.validateOperation(
                 "provider-control", object("provider", "all", "mode", "original")));
     }
 
@@ -125,6 +129,9 @@ class CofferAdapterJsonTest {
         assertThrows(IllegalArgumentException.class,
                 () -> CofferHarnessAdapterMod.validateOperation(
                         "provider-control", object("provider", "structures", "mode", "resident")));
+        assertThrows(IllegalArgumentException.class,
+                () -> CofferHarnessAdapterMod.validateOperation(
+                        "provider-control", object("provider", "protection", "mode", "missing")));
     }
 
     @Test

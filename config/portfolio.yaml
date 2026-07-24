@@ -61,6 +61,7 @@ targets:
       - coffer/double-chest-lifecycle
       - coffer/automation-extraction
       - coffer/api-protection-packaging
+      - coffer/lock-breaking
       - coffer/permissions-luckperms
       - coffer/metrics-exporter
       - coffer/civilization-stack

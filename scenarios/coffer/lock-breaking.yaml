@@ -1,0 +1,106 @@
+schemaVersion: 1
+id: coffer/lock-breaking
+title: Coffer lock splintering and destruction handoff
+description: Proves the packaged Coffer server jar splinters unauthorized locks on the first real-client attack, honors composed Common Protection denial, clears double-chest locks together, and defers later destruction.
+issues: [51]
+tags: [coffer, lock-breaking, protection, double-chest, real-client]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+clients:
+  - { name: owner, username: BreakOwner, gameMode: creative }
+  - { name: breaker, username: LockBreaker, gameMode: creative }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+steps:
+  - id: unauthorized
+    name: First unauthorized attack splinters the lock and second attack destroys the container
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 64 16" }
+      - { type: console.command, command: "fill 0 63 -1 48 63 2 minecraft:stone" }
+      - { type: console.command, command: "setblock 10 64 0 minecraft:chest" }
+      - { type: console.command, command: "tp LockBreaker 10 64 2" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 10, y: 64, z: 0, type: private, ownerPlayer: BreakOwner } }
+      - { type: client.break_block, client: breaker, x: 10, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 1 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 10, y: 64, z: 0 }, as: first-attack }
+    assertions:
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=10&y=64&z=0", jsonPath: block, expected: "minecraft:chest" }
+      - { type: value.json, value: first-attack, jsonPath: pair.0.bound, expected: false }
+      - { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 1 }
+      - { type: client.event, client: owner, event: message, pattern: "lock splinters", operator: equals, count: 0 }
+
+  - id: downstream
+    name: The next attack reaches vanilla destruction
+    actions:
+      - { type: client.break_block, client: breaker, x: 10, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=10&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
+    assertions:
+      - { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 1 }
+
+  - id: protection_denial
+    name: Composed Common Protection denial preserves both block and lock
+    actions:
+      - { type: console.command, command: "setblock 14 64 0 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 14, y: 64, z: 0, type: private, ownerPlayer: BreakOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: protection, mode: deny-break } }
+      - { type: client.break_block, client: breaker, x: 14, y: 64, z: 0 }
+      - { type: wait.duration, milliseconds: 250 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 14, y: 64, z: 0 }, as: denied-attack }
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: protection, mode: original } }
+    assertions:
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:chest" }
+      - { type: value.json, value: denied-attack, jsonPath: pair.0.bound, expected: true }
+      - { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 1 }
+
+  - id: authorized
+    name: Authorized owner attacks bypass splintering
+    actions:
+      - { type: console.command, command: "setblock 18 64 0 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 18, y: 64, z: 0, type: private, ownerPlayer: BreakOwner } }
+      - { type: console.command, command: "tp BreakOwner 18 64 2" }
+      - { type: client.break_block, client: owner, x: 18, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=18&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
+    assertions:
+      - { type: client.event, client: owner, event: message, pattern: "lock splinters", operator: equals, count: 0 }
+
+  - id: double_chest
+    name: One attack atomically clears both halves of a double-chest lock
+    actions:
+      - { type: console.command, command: "setblock 22 64 0 minecraft:chest[facing=north,type=left,waterlogged=false]" }
+      - { type: console.command, command: "setblock 23 64 0 minecraft:chest[facing=north,type=right,waterlogged=false]" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 22, y: 64, z: 0, type: private, ownerPlayer: BreakOwner } }
+      - { type: client.break_block, client: breaker, x: 22, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 22, y: 64, z: 0 }, as: double-after }
+    assertions:
+      - { type: value.json, value: double-after, jsonPath: pair.0.block, expected: "minecraft:chest" }
+      - { type: value.json, value: double-after, jsonPath: pair.1.block, expected: "minecraft:chest" }
+      - { type: value.json, value: double-after, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: double-after, jsonPath: pair.1.bound, expected: false }
+      - { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 2 }
+
+  - id: environmental
+    name: Environmental destruction does not synthesize a player lock-splinter event
+    actions:
+      - { type: console.command, command: "setblock 30 64 0 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 30, y: 64, z: 0, type: private, ownerPlayer: BreakOwner } }
+      - { type: console.command, command: "summon minecraft:tnt 30.5 64 0.5 {fuse:0}" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=30&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
+    assertions:
+      - { type: client.event, client: breaker, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 2 }
+      - { type: log.absent, pattern: "Coffer.*(?:cancelled|blocked).*(?:break|explosion)" }
+
+  - id: stop
+    name: Restore providers and stop after success or failure
+    always: true
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: all, mode: original }, allowFailure: true }
+      - { type: server.stop }
