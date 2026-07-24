@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   harness-soak:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -19,7 +19,10 @@ jobs:
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with: { distribution: temurin, java-version: "25", cache: gradle }
       - name: Install pinned Rust nightly
-        run: rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm run build
       - run: npm run build:client

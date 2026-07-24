@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -29,7 +30,10 @@ jobs:
           java-version: "25"
           cache: gradle
       - name: Install pinned Rust nightly
-        run: rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm test
       - run: npm run fmt:client
@@ -41,8 +45,9 @@ jobs:
       - run: node dist/cli.js doctor
 
   live-smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -56,7 +61,10 @@ jobs:
           java-version: "25"
           cache: gradle
       - name: Install pinned Rust nightly
-        run: rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm run build
       - run: npm run build:client
