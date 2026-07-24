@@ -63,8 +63,10 @@ scenario. `parcels/offline-protection` is the first released-jar foundation: it
 proves Parcels #5's disabled default, direct-defender offline arm, reconnect
 cancellation, provider-unavailable restart behavior, deadline preservation, and
 rollback with a real attacking client. It does not substitute for the final
-five-jar raid matrix. The matrix links each blocked final case to Patrol #37, Rooms
-#96/#97, Parcels #5, or harness #47 and rejects scenario ids on blocked cases.
+five-jar raid matrix. Packaged Patrol #37 and the accepted Rooms #96 policy are
+now executable foundations. The matrix links remaining blocked final cases to
+Patrol #38, Rooms #97, Parcels #5, or harness #47 and rejects scenario ids on
+blocked cases.
 Its executable foundations reference only maintained scenarios that run
 against merged jars. The matrix also detects missing portfolio artifact
 bindings, currently tracked by

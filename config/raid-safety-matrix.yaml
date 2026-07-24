@@ -54,6 +54,20 @@ foundations:
     limitations:
       - Conflict-v2 is not the symmetric participant combat-tag contract required by Patrol issue 37.
 
+  - id: patrol-combat-tag-v3
+    title: Packaged Patrol symmetric combat-tag v3 lifecycle
+    status: executable
+    artifacts: [patrol]
+    scenarios:
+      - id: patrol/combat-tag-v3-contract
+        bindings: {patrol: patrol}
+    proves:
+      - Both real combat participants are tagged before damage resolves.
+      - Durable deadlines, death, disconnect, restart, replay, provider replacement, and callback failures are deterministic.
+    limitations:
+      - Native manual and idle AFK transitions remain owned by Patrol issue 38.
+      - Parcels is absent, so this does not prove defender-aware protection timing.
+
   - id: rooms-exact-containment
     title: Packaged Rooms exact containment and persistence foundation
     status: executable
@@ -91,10 +105,8 @@ acceptance:
     proves:
       - Attacker and victim receive durable authoritative deadlines before AFK eligibility is evaluated.
     blockers:
-      - issue: https://github.com/ouroboros-smp/patrol/issues/37
-        reason: Patrol has not published the symmetric durable participant-tag lifecycle.
       - issue: https://github.com/ouroboros-smp/parcels/issues/5
-        reason: Parcels has not implemented defender-aware consumption of authoritative tag deadlines.
+        reason: Parcels review and released-jar integration of authoritative tag deadlines are not complete.
 
   - id: manual-afk
     title: Manual AFK cannot evade or indefinitely retain raid state
@@ -104,10 +116,10 @@ acceptance:
     proves:
       - Manual AFK transition obeys the accepted presence and combat-tag ordering.
     blockers:
-      - issue: https://github.com/ouroboros-smp/patrol/issues/37
-        reason: Pre-damage AFK revocation and the published participant-tag contract are not implemented.
+      - issue: https://github.com/ouroboros-smp/patrol/issues/38
+        reason: Native manual AFK publication and immediate combat revocation are not merged.
       - issue: https://github.com/ouroboros-smp/parcels/issues/5
-        reason: Defender presence and absence epochs are not implemented.
+        reason: Defender presence and absence epochs are under final review.
 
   - id: idle-afk
     title: Idle AFK starts absence only from authoritative state
@@ -117,10 +129,10 @@ acceptance:
     proves:
       - Idle AFK uses the same durable absence and revalidation rules as manual AFK.
     blockers:
-      - issue: https://github.com/ouroboros-smp/patrol/issues/37
-        reason: Patrol AFK and combat participation ordering remains an implementation prerequisite.
+      - issue: https://github.com/ouroboros-smp/patrol/issues/38
+        reason: Native idle AFK publication and combat participation ordering are not merged.
       - issue: https://github.com/ouroboros-smp/parcels/issues/5
-        reason: Parcels absence epochs and provider freshness checks are not implemented.
+        reason: Parcels absence epochs and provider freshness checks are under final review.
 
   - id: tagged-logout
     title: Tagged logout arms protection only at the later authoritative deadline
@@ -130,10 +142,8 @@ acceptance:
     proves:
       - Shorter and longer combat tags compose deterministically with the offline-protection delay.
     blockers:
-      - issue: https://github.com/ouroboros-smp/patrol/issues/37
-        reason: Durable taggedUntil, disconnect, death, and restart semantics are not published in code.
       - issue: https://github.com/ouroboros-smp/parcels/issues/5
-        reason: Tagged-logout absence epochs and deadline persistence are not implemented.
+        reason: Tagged-logout absence epochs and deadline persistence are under final review.
 
   - id: defender-reconnect
     title: Defender reconnect synchronously cancels pending and armed protection
@@ -154,10 +164,8 @@ acceptance:
     proves:
       - The accepted bounded hull includes representative straight, L-shaped, multi-level, attic, and courtyard layouts.
     blockers:
-      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/96
-        reason: The domain owner has not accepted the proposed inferred-hull rule.
       - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
-        reason: No production inferred-hull contract or persisted implementation exists.
+        reason: The accepted inferred-hull contract is implemented in a draft awaiting final restart-dependency review.
 
   - id: tunnel-exclusion
     title: Inferred structure hull excludes dangling, wide, loop, and underground tunnels
@@ -167,10 +175,8 @@ acceptance:
     proves:
       - Hallway inclusion does not permit arbitrary underground claim extension.
     blockers:
-      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/96
-        reason: The hallway-versus-tunnel policy is still proposed.
       - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
-        reason: Parcels cannot consume a production revisioned inferred hull yet.
+        reason: The production revisioned inferred hull is implemented in a draft awaiting final restart-dependency review.
 
   - id: lock-pop
     title: Parcels denial precedes Coffer lock pop and Rooms storage durability
@@ -218,12 +224,10 @@ acceptance:
     proves:
       - Tags, absence epochs, defender revisions, hull revisions, protection state, locks, and storage HP recover consistently.
     blockers:
-      - issue: https://github.com/ouroboros-smp/patrol/issues/37
-        reason: Participant-tag restart semantics are not implemented.
       - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
-        reason: Inferred-hull persistence and revision fencing are not implemented.
+        reason: Inferred-hull persistence and revision fencing are awaiting final review and merge.
       - issue: https://github.com/ouroboros-smp/parcels/issues/5
-        reason: Absence-epoch restart and crash recovery are not implemented.
+        reason: Absence-epoch restart and crash recovery are awaiting final review and merge.
 
   - id: disabled-default-rollout
     title: New raid-safety behavior remains disabled until explicitly enabled
