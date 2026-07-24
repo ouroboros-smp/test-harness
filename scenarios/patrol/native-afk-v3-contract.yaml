@@ -1,0 +1,310 @@
+schemaVersion: 1
+id: patrol/native-afk-v3-contract
+title: Patrol packaged native AFK and combat-gate lifecycle contract
+description: Uses two real protocol clients, a released Patrol jar, and the strict conflict-v3 adapter to prove manual and idle AFK, cooldown, protection, first-hit revocation, durable combat denial, reconnect/restart behavior, and ephemeral AFK recovery.
+issues: [38]
+tags: [fabric, minecraft-26.2, patrol, afk, multi-client, pvp, public-api, persistence, restart]
+artifacts:
+  patrol: { required: true, description: Packaged Patrol Fabric server jar }
+  patrol_adapter: { required: true, description: Harness-only strict conflict-v3 ObjectShare adapter jar }
+clients:
+  - { name: afk, username: PatrolAfk }
+  - { name: opponent, username: PatrolOpponent }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+  properties:
+    pvp: true
+    difficulty: normal
+steps:
+  - id: configure
+    name: Install the exact bounded AFK test policy before startup
+    actions:
+      - type: file.write
+        path: config/patrol/patrol.json
+        content: |
+          {
+            "afk": {
+              "enabled": true,
+              "manual-command": true,
+              "no-afk-command": true,
+              "info-command": true,
+              "idle-timeout-seconds": 5,
+              "command-cooldown-seconds": 1,
+              "ignore-attack-only-activity": false,
+              "combat-tag-seconds": 30,
+              "damage-protection": {"enabled": true, "delay-seconds": 1},
+              "sleep-exclusion": true,
+              "phantom-suppression": true,
+              "tab-list": {"enabled": true, "reconcile-seconds": 1},
+              "auto-kick": {
+                "enabled": true,
+                "delay-seconds": 3,
+                "include-non-survival": false
+              },
+              "messages": {
+                "enabled": true,
+                "display-duration": true,
+                "default-reason": "poof!",
+                "timeout-reason": "timeout"
+              }
+            }
+          }
+      - { type: server.start }
+      - { type: console.command, command: "op PatrolAfk" }
+      - { type: client.command, client: opponent, command: "noafk" }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: initial-afk }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolOpponent }, as: initial-opponent }
+      - { type: value.extract, value: initial-afk, jsonPath: status.afkRevision, as: initial-afk-revision }
+    assertions:
+      - { type: log.present, pattern: "Patrol Fabric enabled" }
+      - { type: value.json, value: initial-afk, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: initial-afk, jsonPath: status.afkRevision, operator: gte, expected: 1 }
+      - { type: value.json, value: initial-opponent, jsonPath: status.afk, expected: false }
+
+  - id: manual
+    name: Exercise literal reasons, toggle exit, cooldown, and player/operator info
+    actions:
+      - { type: client.command, client: afk, command: "afk tea break" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: true
+      - { type: client.command, client: afk, command: "afkinfo PatrolAfk" }
+      - { type: client.command, client: afk, command: "patrol afk info PatrolAfk" }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: manual-afk }
+      - { type: client.command, client: afk, command: "afk" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: false
+      - { type: client.command, client: afk, command: "afk" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: cooldown-active }
+    assertions:
+      - { type: value.json, value: manual-afk, jsonPath: status.afk, expected: true }
+      - { type: client.event, client: afk, event: message, pattern: "reason: tea break" }
+      - { type: client.event, client: afk, event: message, pattern: "is no longer AFK after" }
+      - { type: client.event, client: afk, event: message, pattern: "wait 1s before going AFK again" }
+      - { type: value.json, value: cooldown-active, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: cooldown-active, jsonPath: status.afkRevision, operator: gt, expected: "${initial-afk-revision}" }
+
+  - id: operator_controls
+    name: Exercise operator set, inspect, damage-policy, refresh, and clear controls
+    actions:
+      - { type: client.command, client: afk, command: "patrol afk set PatrolAfk operator-set" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: true
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: operator-set }
+      - { type: client.command, client: afk, command: "patrol afk protection deny PatrolAfk" }
+      - { type: client.command, client: afk, command: "patrol afk protection allow PatrolAfk" }
+      - { type: client.command, client: afk, command: "patrol afk info PatrolAfk" }
+      - { type: client.command, client: afk, command: "patrol afk refresh PatrolAfk" }
+      - { type: client.command, client: afk, command: "patrol afk clear PatrolAfk" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: false
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: operator-cleared }
+    assertions:
+      - { type: value.json, value: operator-set, jsonPath: status.afk, expected: true }
+      - { type: value.json, value: operator-cleared, jsonPath: status.afk, expected: false }
+      - { type: client.event, client: afk, event: message, pattern: "reason: operator-set" }
+      - { type: client.event, client: afk, event: message, pattern: "damage protection is denied" }
+      - { type: client.event, client: afk, event: message, pattern: "damage protection is allowed by policy" }
+      - { type: client.event, client: afk, event: message, pattern: "refreshed PatrolAfk" }
+
+  - id: movement
+    name: Clear manual AFK on real movement and let client momentum settle
+    actions:
+      - { type: wait.duration, milliseconds: 1100 }
+      - { type: client.command, client: afk, command: "afk movement-check" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: true
+      - { type: client.move, client: afk, control: forward, durationMs: 250 }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: false
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: movement-cleared }
+      - { type: wait.duration, milliseconds: 1000 }
+    assertions:
+      - { type: value.json, value: movement-cleared, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: movement-cleared, jsonPath: status.afkRevision, operator: gt, expected: "${initial-afk-revision}" }
+
+  - id: idle_and_protection
+    name: Enter idle AFK at the bounded timeout, activate protection, and retain the admin kick exemption
+    actions:
+      - { type: wait.duration, seconds: 9 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: idle-protected }
+      - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: PatrolAfk, amount: 4, type: minecraft:generic } }
+      - { type: wait.ticks, ticks: 5 }
+    assertions:
+      - { type: value.json, value: idle-protected, jsonPath: status.afk, expected: true }
+      - { type: client.state, client: afk, path: connected, expected: true }
+      - { type: client.state, client: afk, path: health, expected: 20 }
+      - { type: client.state, client: afk, path: tabList, operator: contains, expected: "[AFK:I] PatrolAfk" }
+
+  - id: first_hit
+    name: Let the first accepted player hit damage the protected AFK target after durable symmetric revocation
+    actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolOpponent run tp PatrolAfk ~1 ~ ~" } }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.attack, client: opponent, target: PatrolAfk }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.participationRole
+          expected: victim
+      - { type: bridge.request, method: GET, path: "/v1/player/state?name=PatrolAfk", as: first-hit-player }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: hit-afk }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolOpponent }, as: hit-opponent }
+      - { type: value.extract, value: hit-afk, jsonPath: status.lastParticipationAt, as: hit-participation }
+      - { type: client.command, client: afk, command: "afk exploit" }
+      - { type: client.command, client: opponent, command: "afk exploit" }
+      - { type: wait.ticks, ticks: 3 }
+    assertions:
+      - { type: value.json, value: hit-afk, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: hit-afk, jsonPath: status.participationRole, expected: victim }
+      - { type: value.json, value: hit-opponent, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: hit-opponent, jsonPath: status.participationRole, expected: attacker }
+      - { type: value.json, value: hit-afk, jsonPath: status.taggedUntil, operator: gt, expected: "${hit-participation}" }
+      - { type: value.json, value: first-hit-player, jsonPath: health, operator: lt, expected: 20 }
+      - { type: client.state, client: afk, path: tabList, operator: not_contains, expected: "[AFK" }
+      - { type: client.event, client: afk, event: message, pattern: "cannot go AFK while combat-tagged" }
+      - { type: client.event, client: opponent, event: message, pattern: "cannot go AFK while combat-tagged" }
+      - { type: client.event, client: afk, event: message, pattern: "returned after" }
+
+  - id: durable_denial
+    name: Retain combat denial across reconnect and clean server restart
+    timeoutSeconds: 360
+    actions:
+      - { type: client.disconnect, client: afk }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.reconnect, client: afk }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.command, client: afk, command: "afk reconnect-exploit" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: reconnect-status }
+      - { type: server.restart, reconnect: true }
+      - { type: client.command, client: opponent, command: "noafk" }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: client.command, client: afk, command: "afk restart-exploit" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: restart-status }
+    assertions:
+      - { type: value.json, value: reconnect-status, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: reconnect-status, jsonPath: status.participationRole, expected: victim }
+      - { type: value.json, value: restart-status, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: restart-status, jsonPath: status.participationRole, expected: victim }
+      - { type: client.event, client: afk, event: message, pattern: "cannot go AFK while combat-tagged" }
+
+  - id: ephemeral_restart
+    name: Clear AFK, NoAFK, marker eligibility, protection, and cooldown across restart
+    timeoutSeconds: 360
+    actions:
+      - { type: client.command, client: afk, command: "noafk" }
+      - { type: wait.duration, seconds: 32 }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: client.command, client: afk, command: "afk ephemeral" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: true
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: pre-restart-afk }
+      - { type: server.restart, reconnect: true }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: post-restart-afk }
+      - { type: client.command, client: afk, command: "afk after-restart" }
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: true
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: restart-reentry }
+      - { type: client.command, client: afk, command: "afk" }
+      - { type: client.command, client: afk, command: "noafk" }
+      - { type: wait.ticks, ticks: 2 }
+    assertions:
+      - { type: value.json, value: pre-restart-afk, jsonPath: status.afk, expected: true }
+      - { type: value.json, value: post-restart-afk, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: post-restart-afk, jsonPath: status.lastParticipationAt, expected: 0 }
+      - { type: value.json, value: restart-reentry, jsonPath: status.afk, expected: true }
+      - { type: client.state, client: afk, path: tabList, operator: not_contains, expected: "[AFK" }
+      - { type: client.event, client: afk, event: message, pattern: "automatic idle AFK is off for this connection" }
+      - { type: log.absent, pattern: "Patrol Fabric failed to start|Patrol scheduled task failed|Patrol conflict persistence listener failed" }
+
+  - id: auto_kick
+    name: Kick a non-exempt idle AFK player on a dedicated server
+    actions:
+      - { type: client.command, client: afk, command: "noafk" }
+      - { type: client.command, client: opponent, command: "noafk" }
+      - { type: wait.duration, milliseconds: 500 }
+      - { type: console.command, command: "deop PatrolAfk" }
+      - { type: wait.duration, seconds: 9 }
+    assertions:
+      - { type: client.state, client: afk, path: connected, expected: false }
+      - { type: log.present, pattern: "PatrolAfk was kicked while AFK" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }

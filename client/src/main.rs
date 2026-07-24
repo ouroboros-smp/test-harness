@@ -321,6 +321,27 @@ fn snapshot(client: &Client) -> Value {
         .ok()
         .map(|value| value.name());
     let dimension = client.world_name().ok().map(|value| value.0.to_string());
+    let mut tab_list = client
+        .tab_list()
+        .ok()
+        .map(|players| {
+            players
+                .into_values()
+                .map(|player| {
+                    json!({
+                        "username": player.profile.name,
+                        "uuid": player.uuid.to_string(),
+                        "displayName": player.display_name.map(|name| name.to_string()),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    tab_list.sort_by(|left, right| {
+        left.get("username")
+            .and_then(Value::as_str)
+            .cmp(&right.get("username").and_then(Value::as_str))
+    });
 
     json!({
         "username": client.username(),
@@ -338,6 +359,7 @@ fn snapshot(client: &Client) -> Value {
         "dimension": dimension,
         "position": position.map(|value| json!({ "x": value.x, "y": value.y, "z": value.z })),
         "inventory": inventory,
+        "tabList": tab_list,
         "window": current_window(client),
     })
 }
