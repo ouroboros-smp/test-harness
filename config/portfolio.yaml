@@ -45,7 +45,7 @@ targets:
         java: 25
       - name: Rooms packaged civilization dependency
         repository: "${roomsRepository}"
-        command: ["${platform.gradleWrapper}", :clean, :build]
+        command: ["${platform.gradleWrapper}", :platform:fabric:clean, :platform:fabric:build]
         java: 25
         timeoutMinutes: 30
       - name: Kinship packaged civilization dependency
