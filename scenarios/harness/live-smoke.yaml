@@ -53,6 +53,14 @@ steps:
           count: 3
       - type: wait.ticks
         ticks: 2
+      - type: wait.until
+        timeoutMs: 10000
+        intervalMs: 100
+        assertion:
+          type: client.state
+          client: alice
+          path: inventory.36.count
+          expected: 3
     assertions:
       - type: bridge.json
         path: "/v1/player/state?name=HarnessAlice"
