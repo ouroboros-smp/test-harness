@@ -265,13 +265,22 @@ steps:
       - type: wait.until
         timeoutMs: 60000
         intervalMs: 250
-        assertion: { type: client.event, client: head, event: message, pattern: "Revived structure.*room\\(s\\).*at" }
+        assertion: { type: client.event, client: head, event: message, pattern: "Structure blocks revived; restoring continuity" }
       - type: wait.until
         timeoutMs: 60000
         intervalMs: 250
         assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ? AND phase = 0", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 1 }
       - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT phase FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-phase-zero }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-blocked-before-restore }
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivMember ~41 ~ ~-2 0 0" } }
+      - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - { type: wait.ticks, ticks: 10 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: window_open, count: 1, operator: equals }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "restoring continuity; access remains frozen" }
+      - type: wait.until
+        assertion: { type: client.event, client: head, event: message, pattern: "Revived structure.*room\\(s\\).*at", count: 0, operator: equals }
       - { type: server.restart, reconnect: true }
       - type: wait.until
         timeoutMs: 60000
@@ -279,6 +288,10 @@ steps:
         assertion: { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ? AND phase = 0", parameters: ["${structure-id}"], jsonPath: "0.count", expected: 1 }
       - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT phase FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-phase-zero-after-restart }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-blocked-after-restart }
+      - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - { type: wait.ticks, ticks: 10 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: window_open, count: 1, operator: equals }
       - { type: adapter.invoke, adapter: coffer, operation: provider-control, args: { provider: continuity, mode: acknowledge-throwing } }
       - type: wait.until
         timeoutMs: 60000
@@ -289,6 +302,10 @@ steps:
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 34, y: 0, z: 0 }, as: continuity-after-personal }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-registry }
       - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, flag: hoppers, value: true }, as: continuity-later-mutation }
+      - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - { type: wait.ticks, ticks: 10 }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: window_open, count: 1, operator: equals }
       - { type: server.restart, reconnect: true }
       - type: wait.until
         timeoutMs: 60000
