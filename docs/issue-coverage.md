@@ -36,7 +36,7 @@ harness-only bridge on 2026-07-18.
 | #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
 | #46 | Coffer, Rooms, and Kinship principal, management, provider-failure, selective-transfer, phase-0/phase-1 retry, and restart contracts; pre-unfreeze completion remains blocked | `coffer/civilization-stack` |
 | #51 | Coffer first-attack lock splintering, Common Protection denial, authorized bypass, double-chest atomic clearing, and destruction handoff | `coffer/lock-breaking` |
-| #97 | Rooms revision-pinned inferred-hull ObjectShare publication, canonical span paging, restart hydration, and corrupt-snapshot fail-closed behavior against the packaged jar | `rooms/inferred-hull-contract` |
+| #96, #97 | Rooms accepted inferred-hull geometry matrix, strict revision-pinned canonical span paging, restart stability, and nonmember geometry mutation rebuild against an exact packaged PR artifact | `rooms/inferred-hull-contract` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
 tracks behavioral production-stack interoperability. The executable Coffer
