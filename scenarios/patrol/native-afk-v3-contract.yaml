@@ -174,10 +174,30 @@ steps:
       - { type: value.json, value: movement-cleared, jsonPath: status.afkRevision, operator: gt, expected: "${initial-afk-revision}" }
 
   - id: idle_and_protection
-    name: Enter idle AFK at the bounded timeout, activate protection, and retain the admin kick exemption
+    name: Observe bounded idle entry, protection, sleep exclusion, phantom suppression, and the admin kick exemption
     actions:
-      - { type: wait.duration, seconds: 9 }
+      - type: wait.until
+        timeoutMs: 10000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.afk
+          expected: true
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: afk-benefits
+          args: { player: PatrolAfk, peer: PatrolOpponent }
+          jsonPath: damageProtected
+          expected: true
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: idle-protected }
+      - { type: adapter.invoke, adapter: patrol, operation: afk-benefits, args: { player: PatrolAfk, peer: PatrolOpponent }, as: idle-benefits }
       - { type: bridge.request, method: POST, path: /v1/player/damage, body: { player: PatrolAfk, amount: 4, type: minecraft:generic } }
       - { type: wait.ticks, ticks: 5 }
     assertions:
@@ -185,6 +205,9 @@ steps:
       - { type: client.state, client: afk, path: connected, expected: true }
       - { type: client.state, client: afk, path: health, expected: 20 }
       - { type: client.state, client: afk, path: tabList, operator: contains, expected: "[AFK:I] PatrolAfk" }
+      - { type: value.json, value: idle-benefits, jsonPath: damageProtected, expected: true }
+      - { type: value.json, value: idle-benefits, jsonPath: sleepExcluded, expected: true }
+      - { type: value.json, value: idle-benefits, jsonPath: phantomSuppressed, expected: true }
 
   - id: first_hit
     name: Let the first accepted player hit damage the protected AFK target after durable symmetric revocation
@@ -206,6 +229,8 @@ steps:
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: hit-afk }
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolOpponent }, as: hit-opponent }
       - { type: value.extract, value: hit-afk, jsonPath: status.lastParticipationAt, as: hit-participation }
+      - { type: value.extract, value: hit-afk, jsonPath: status.taggedUntil, as: first-afk-tagged-until }
+      - { type: value.extract, value: hit-opponent, jsonPath: status.taggedUntil, as: first-opponent-tagged-until }
       - { type: client.command, client: afk, command: "afk exploit" }
       - { type: client.command, client: opponent, command: "afk exploit" }
       - { type: wait.ticks, ticks: 3 }
@@ -219,7 +244,20 @@ steps:
       - { type: client.state, client: afk, path: tabList, operator: not_contains, expected: "[AFK" }
       - { type: client.event, client: afk, event: message, pattern: "cannot go AFK while combat-tagged" }
       - { type: client.event, client: opponent, event: message, pattern: "cannot go AFK while combat-tagged" }
-      - { type: client.event, client: afk, event: message, pattern: "returned after" }
+
+  - id: projectile_refresh
+    name: Credit an indirect projectile to its player owner and extend both absolute deadlines
+    actions:
+      - { type: wait.duration, milliseconds: 1100 }
+      - { type: adapter.invoke, adapter: patrol, operation: projectile-hit, args: { attacker: PatrolOpponent, victim: PatrolAfk }, as: projectile-hit }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: projectile-afk }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolOpponent }, as: projectile-opponent }
+    assertions:
+      - { type: value.json, value: projectile-hit, jsonPath: allowed, expected: true }
+      - { type: value.json, value: projectile-afk, jsonPath: status.participationRole, expected: victim }
+      - { type: value.json, value: projectile-opponent, jsonPath: status.participationRole, expected: attacker }
+      - { type: value.json, value: projectile-afk, jsonPath: status.taggedUntil, operator: gt, expected: "${first-afk-tagged-until}" }
+      - { type: value.json, value: projectile-opponent, jsonPath: status.taggedUntil, operator: gt, expected: "${first-opponent-tagged-until}" }
 
   - id: durable_denial
     name: Retain combat denial across reconnect and clean server restart
@@ -245,13 +283,39 @@ steps:
       - { type: value.json, value: restart-status, jsonPath: status.participationRole, expected: victim }
       - { type: client.event, client: afk, event: message, pattern: "cannot go AFK while combat-tagged" }
 
+  - id: authority_fail_closed
+    name: Observe the exact combat expiry, then inject authority unavailability and recover
+    actions:
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-tagged
+          args: { player: PatrolAfk }
+          jsonPath: combatTagged
+          expected: false
+      - { type: adapter.invoke, adapter: patrol, operation: authority-outage-start, args: {}, as: outage-start }
+      - { type: client.command, client: afk, command: "afk authority-outage" }
+      - { type: wait.ticks, ticks: 3 }
+      - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: unavailable-status }
+      - { type: adapter.invoke, adapter: patrol, operation: afk-benefits, args: { player: PatrolAfk, peer: PatrolOpponent }, as: unavailable-benefits }
+      - { type: adapter.invoke, adapter: patrol, operation: authority-outage-stop, args: {}, as: outage-stop }
+    assertions:
+      - { type: value.json, value: outage-start, jsonPath: durabilityAvailable, expected: false }
+      - { type: value.json, value: unavailable-status, jsonPath: status.afk, expected: false }
+      - { type: value.json, value: unavailable-benefits, jsonPath: damageProtected, expected: false }
+      - { type: value.json, value: unavailable-benefits, jsonPath: sleepExcluded, expected: false }
+      - { type: value.json, value: unavailable-benefits, jsonPath: phantomSuppressed, expected: false }
+      - { type: value.json, value: outage-stop, jsonPath: durabilityAvailable, expected: true }
+      - { type: client.event, client: afk, event: message, pattern: "combat authority is unavailable" }
+
   - id: ephemeral_restart
     name: Clear AFK, NoAFK, marker eligibility, protection, and cooldown across restart
     timeoutSeconds: 360
     actions:
       - { type: client.command, client: afk, command: "noafk" }
-      - { type: wait.duration, seconds: 32 }
-      - { type: wait.ticks, ticks: 10 }
       - { type: client.command, client: afk, command: "afk ephemeral" }
       - type: wait.until
         timeoutMs: 5000
@@ -298,10 +362,18 @@ steps:
       - { type: client.command, client: opponent, command: "noafk" }
       - { type: wait.duration, milliseconds: 500 }
       - { type: console.command, command: "deop PatrolAfk" }
-      - { type: wait.duration, seconds: 9 }
+      - type: wait.until
+        timeoutMs: 12000
+        intervalMs: 50
+        assertion:
+          type: client.state
+          client: afk
+          path: connected
+          expected: false
     assertions:
       - { type: client.state, client: afk, path: connected, expected: false }
       - { type: log.present, pattern: "PatrolAfk was kicked while AFK" }
+      - { type: log.absent, pattern: "PatrolAfk is now AFK: tea break" }
 
   - id: stop
     name: Stop after success or failure
