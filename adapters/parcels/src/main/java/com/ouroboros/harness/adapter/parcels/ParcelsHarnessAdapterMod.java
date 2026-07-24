@@ -26,12 +26,19 @@ import net.minecraft.server.players.NameAndId;
 /** Harness-only direct-claim fixture, Patrol v3 peer, and protection probe. */
 public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAdapter {
     static final String PATROL_V3_KEY = "ouroboros:civilization/patrol-conflict/v3";
+    static final String KINSHIP_V2_KEY =
+            "ouroboros:civilization/principal-directory/v2";
+    private static final String GROUP_PRINCIPAL = "kinship:family-42";
     private static final String AVAILABILITY_FILE =
             "harness-parcels-patrol.properties";
-    private final CopyOnWriteArrayList<Consumer<Map<String, Object>>> subscribers =
+    private final CopyOnWriteArrayList<Consumer<Map<String, Object>>> patrolSubscribers =
+            new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Consumer<Map<String, Object>>> kinshipSubscribers =
             new CopyOnWriteArrayList<>();
     private Path availabilityFile;
     private volatile boolean patrolAvailable;
+    private volatile UUID kinshipMember;
+    private volatile boolean kinshipSessionAvailable;
 
     @Override
     public void onInitialize() {
@@ -42,17 +49,35 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
         if (share.get(PATROL_V3_KEY) != null) {
             throw new IllegalStateException("Patrol v3 provider is already published");
         }
+        if (share.get(KINSHIP_V2_KEY) != null) {
+            throw new IllegalStateException("Kinship v2 provider is already published");
+        }
         Function<UUID, Map<String, Object>> status =
                 player -> ParcelsAdapterContracts.patrolStatus(player, patrolAvailable);
         Function<Consumer<Map<String, Object>>, AutoCloseable> subscribe = listener -> {
-            subscribers.add(listener);
-            return () -> subscribers.remove(listener);
+            patrolSubscribers.add(listener);
+            return () -> patrolSubscribers.remove(listener);
         };
         share.put(PATROL_V3_KEY, Map.of(
                 "protocolVersion", 3,
                 "eventSchemaVersion", 1,
                 "status", status,
                 "subscribe", subscribe));
+        Function<UUID, Map<String, Object>> kinshipStatus = player ->
+                ParcelsAdapterContracts.kinshipStatus(
+                        player,
+                        kinshipMember == null ? new UUID(0L, 0L) : kinshipMember,
+                        GROUP_PRINCIPAL,
+                        kinshipSessionAvailable);
+        Function<Consumer<Map<String, Object>>, AutoCloseable> kinshipSubscribe = listener -> {
+            kinshipSubscribers.add(listener);
+            return () -> kinshipSubscribers.remove(listener);
+        };
+        share.put(KINSHIP_V2_KEY, Map.of(
+                "protocolVersion", 2,
+                "eventSchemaVersion", 1,
+                "status", kinshipStatus,
+                "subscribe", kinshipSubscribe));
     }
 
     @Override
@@ -66,6 +91,8 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
         return switch (operation) {
             case "offline-id" -> offlineId(arguments);
             case "seed-direct-claim" -> seedDirectClaim(arguments);
+            case "seed-group-claim" -> seedGroupClaim(arguments);
+            case "kinship-session" -> kinshipSession(arguments);
             case "patrol-available" -> patrolAvailable(arguments);
             case "protection" -> protection(server, arguments);
             default -> throw new IllegalArgumentException(
@@ -89,6 +116,34 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
         int x = requiredInt(arguments, "x");
         int y = requiredInt(arguments, "y");
         int z = requiredInt(arguments, "z");
+        seedClaim(structureId, roomId, "player:" + ownerId, x, y, z);
+        JsonObject result = claimResult(structureId, roomId, x, y, z);
+        result.addProperty("ownerId", ownerId.toString());
+        return result;
+    }
+
+    private JsonObject seedGroupClaim(JsonObject arguments) throws Exception {
+        UUID structureId = requiredUuid(arguments, "structureId");
+        UUID roomId = requiredUuid(arguments, "roomId");
+        String memberUsername = requiredString(arguments, "memberUsername");
+        UUID memberId = ParcelsAdapterContracts.offlinePlayerId(memberUsername);
+        int x = requiredInt(arguments, "x");
+        int y = requiredInt(arguments, "y");
+        int z = requiredInt(arguments, "z");
+        seedClaim(structureId, roomId, GROUP_PRINCIPAL, x, y, z);
+        JsonObject result = claimResult(structureId, roomId, x, y, z);
+        result.addProperty("groupPrincipal", GROUP_PRINCIPAL);
+        result.addProperty("memberId", memberId.toString());
+        return result;
+    }
+
+    private static void seedClaim(
+            UUID structureId,
+            UUID roomId,
+            String owner,
+            int x,
+            int y,
+            int z) throws Exception {
         Path database = FabricLoader.getInstance().getConfigDir()
                 .resolve("parcels").resolve("parcels.db");
         Class.forName("org.sqlite.JDBC");
@@ -114,7 +169,7 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
             timeout.execute("PRAGMA busy_timeout=5000");
             statement.setString(1, structureId.toString());
             statement.setString(2, "minecraft:overworld");
-            statement.setString(3, "player:" + ownerId);
+            statement.setString(3, owner);
             statement.setString(4, "");
             statement.setString(5,
                     ParcelsAdapterContracts.legacyRoom(roomId, x, y, z, x, y, z));
@@ -122,13 +177,44 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
                 throw new IllegalStateException("direct claim fixture was not persisted");
             }
         }
+    }
+
+    private static JsonObject claimResult(
+            UUID structureId, UUID roomId, int x, int y, int z) {
         JsonObject result = new JsonObject();
         result.addProperty("structureId", structureId.toString());
         result.addProperty("roomId", roomId.toString());
-        result.addProperty("ownerId", ownerId.toString());
         result.addProperty("x", x);
         result.addProperty("y", y);
         result.addProperty("z", z);
+        return result;
+    }
+
+    private JsonObject kinshipSession(JsonObject arguments) {
+        UUID member = ParcelsAdapterContracts.offlinePlayerId(
+                requiredString(arguments, "playerUsername"));
+        boolean available = requiredBoolean(arguments, "available");
+        kinshipMember = member;
+        kinshipSessionAvailable = available;
+        Map<String, Object> event = Map.ofEntries(
+                Map.entry("eventType", "kinship.administration_changed"),
+                Map.entry("action", "administration_changed"),
+                Map.entry("aggregateId", member.toString()),
+                Map.entry("aggregateRevision", 8L),
+                Map.entry("data", Map.of(
+                        "playerId", member.toString(),
+                        "previousPrincipal", GROUP_PRINCIPAL,
+                        "principal", GROUP_PRINCIPAL,
+                        "previousCanAdminister", false,
+                        "canAdminister", false)));
+        int delivered = kinshipSubscribers.size();
+        kinshipSubscribers.forEach(listener -> listener.accept(event));
+        JsonObject result = new JsonObject();
+        result.addProperty("available", available);
+        result.addProperty("memberId", member.toString());
+        result.addProperty("groupPrincipal", GROUP_PRINCIPAL);
+        result.addProperty("delivered", delivered);
+        result.addProperty("subscribersAfter", kinshipSubscribers.size());
         return result;
     }
 
@@ -147,13 +233,13 @@ public final class ParcelsHarnessAdapterMod implements ModInitializer, HarnessAd
                 "aggregateId", player.toString(),
                 "playerId", player.toString(),
                 "revision", 1L);
-        int delivered = subscribers.size();
-        subscribers.forEach(listener -> listener.accept(event));
+        int delivered = patrolSubscribers.size();
+        patrolSubscribers.forEach(listener -> listener.accept(event));
         JsonObject result = new JsonObject();
         result.addProperty("available", available);
         result.addProperty("playerId", player.toString());
         result.addProperty("delivered", delivered);
-        result.addProperty("subscribersAfter", subscribers.size());
+        result.addProperty("subscribersAfter", patrolSubscribers.size());
         return result;
     }
 

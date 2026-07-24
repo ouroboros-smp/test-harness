@@ -1,7 +1,9 @@
 package com.ouroboros.harness.adapter.parcels;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 final class ParcelsAdapterContracts {
@@ -35,6 +37,56 @@ final class ParcelsAdapterContracts {
                 Map.entry("revision", 1L),
                 Map.entry("afk", false),
                 Map.entry("afkRevision", 1L));
+    }
+
+    static Map<String, Object> kinshipStatus(
+            UUID requested,
+            UUID groupMember,
+            String groupPrincipal,
+            boolean sessionAvailable) {
+        Objects.requireNonNull(requested, "requested");
+        Objects.requireNonNull(groupMember, "groupMember");
+        if (groupPrincipal == null || !groupPrincipal.matches("[a-z][a-z0-9_-]*:[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("groupPrincipal must be canonical");
+        }
+        boolean selectedMember = requested.equals(groupMember);
+        String personal = "player:" + requested;
+        if (!selectedMember) {
+            return Map.ofEntries(
+                    Map.entry("available", true),
+                    Map.entry("verified", true),
+                    Map.entry("playerId", requested.toString()),
+                    Map.entry("aggregateId", requested.toString()),
+                    Map.entry("principal", personal),
+                    Map.entry("member", false),
+                    Map.entry("canAdminister", false),
+                    Map.entry("revision", 1L));
+        }
+        if (sessionAvailable) {
+            return Map.ofEntries(
+                    Map.entry("available", true),
+                    Map.entry("verified", true),
+                    Map.entry("playerId", requested.toString()),
+                    Map.entry("aggregateId", requested.toString()),
+                    Map.entry("principal", groupPrincipal),
+                    Map.entry("member", true),
+                    Map.entry("canAdminister", false),
+                    Map.entry("revision", 7L));
+        }
+        LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+        result.put("available", false);
+        result.put("verified", false);
+        result.put("playerId", requested.toString());
+        result.put("aggregateId", requested.toString());
+        result.put("principal", personal);
+        result.put("member", false);
+        result.put("canAdminister", false);
+        result.put("revision", 7L);
+        result.put("lastKnownPrincipal", groupPrincipal);
+        result.put("lastKnownMember", true);
+        result.put("lastKnownCanAdminister", false);
+        result.put("lastKnownRevision", 7L);
+        return Map.copyOf(result);
     }
 
     static String legacyRoom(

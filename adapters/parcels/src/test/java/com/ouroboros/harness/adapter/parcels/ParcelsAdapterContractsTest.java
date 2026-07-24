@@ -34,6 +34,38 @@ class ParcelsAdapterContractsTest {
     }
 
     @Test
+    void kinshipStatusSeparatesSessionAuthorityFromDurableMembership() {
+        UUID player = UUID.randomUUID();
+        String principal = "kinship:family-42";
+
+        var online = ParcelsAdapterContracts.kinshipStatus(
+                player, player, principal, true);
+        assertTrue((Boolean) online.get("available"));
+        assertTrue((Boolean) online.get("verified"));
+        assertTrue((Boolean) online.get("member"));
+        assertEquals(principal, online.get("principal"));
+        assertEquals(7L, online.get("revision"));
+
+        var offline = ParcelsAdapterContracts.kinshipStatus(
+                player, player, principal, false);
+        assertFalse((Boolean) offline.get("available"));
+        assertFalse((Boolean) offline.get("verified"));
+        assertFalse((Boolean) offline.get("member"));
+        assertEquals("player:" + player, offline.get("principal"));
+        assertEquals(principal, offline.get("lastKnownPrincipal"));
+        assertEquals(true, offline.get("lastKnownMember"));
+        assertEquals(7L, offline.get("lastKnownRevision"));
+
+        UUID unrelated = UUID.randomUUID();
+        var personal = ParcelsAdapterContracts.kinshipStatus(
+                unrelated, player, principal, false);
+        assertTrue((Boolean) personal.get("available"));
+        assertTrue((Boolean) personal.get("verified"));
+        assertFalse((Boolean) personal.get("member"));
+        assertEquals("player:" + unrelated, personal.get("principal"));
+    }
+
+    @Test
     void legacyRoomRejectsInvertedBounds() {
         UUID room = UUID.randomUUID();
         assertEquals(room + ",1,2,3,4,5,6",
