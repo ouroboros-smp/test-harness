@@ -55,6 +55,8 @@ steps:
   - id: second_attack
     name: Advance the aggregate monotonically and reconcile bounded replay with status
     actions:
+      - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at PatrolAggressor run tp PatrolVictim ~1 ~ ~" } }
+      - { type: wait.ticks, ticks: 5 }
       - { type: client.attack, client: aggressor, target: PatrolVictim }
       - { type: wait.ticks, ticks: 25 }
       - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: aggressor-after-second }
