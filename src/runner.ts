@@ -723,6 +723,25 @@ export function extractValue(value: JsonValue | undefined, path: string): JsonVa
   return extracted;
 }
 
+// A per-line boolean match must use a stateless regex. The g and y flags make RegExp.prototype.test
+// advance lastIndex between calls, so a pattern reused across a .filter skips alternating matches and
+// miscounts. Strip them; they carry no meaning for a per-line test.
+export function lineMatcher(pattern: string, flags: string): RegExp {
+  return new RegExp(pattern, flags.replace(/[gy]/g, ""));
+}
+
+// A file/database that a live server produces shortly after a step begins must surface as a
+// retryable assertion failure, not a raw ENOENT: waitUntilAssertion only re-polls HarnessErrors whose
+// code is ASSERTION_FAILED or ends with _ASSERTION_FAILED, so an unwrapped fs error aborts wait.until
+// on the first attempt even though the scenario schema advertises these assertions as pollable.
+export async function assertFileReadable(path: string): Promise<void> {
+  try {
+    await readFile(path);
+  } catch (error) {
+    throw new HarnessError("FILE_ASSERTION_FAILED", `file ${path} is not readable: ${(error as Error).message}`);
+  }
+}
+
 async function executeAssertion(context: RunnerContext, assertion: HarnessAssertion, evidence: Record<string, JsonValue>): Promise<void> {
   const string = (name: string, fallback?: string) => {
     const value = assertion[name];
@@ -732,20 +751,20 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
   };
   switch (assertion.type) {
     case "log.absent": {
-      const pattern = new RegExp(string("pattern"), string("flags", "i"));
+      const pattern = lineMatcher(string("pattern"), string("flags", "i"));
       const matches = context.server.monitor.lines.filter((line) => pattern.test(line));
       if (matches.length) throw new HarnessError("LOG_ASSERTION_FAILED", `Unexpected log pattern ${pattern}`, matches.slice(-20));
       return;
     }
     case "log.present": {
-      const pattern = new RegExp(string("pattern"), string("flags", "i"));
+      const pattern = lineMatcher(string("pattern"), string("flags", "i"));
       const matches = context.server.monitor.lines.filter((line) => pattern.test(line));
       assertComparison(matches.length, assertion.operator ?? "gte", assertion.count ?? 1, `${pattern} log count`);
       evidence[`log:${pattern}`] = matches.slice(-20);
       return;
     }
     case "log.rate": {
-      const pattern = new RegExp(string("pattern", "\\bERROR\\b"), string("flags", "i"));
+      const pattern = lineMatcher(string("pattern", "\\bERROR\\b"), string("flags", "i"));
       const count = context.server.monitor.lines.filter((line) => pattern.test(line)).length;
       const minutes = Math.max(1 / 60, Number(assertion.windowSeconds ?? 60) / 60);
       assertComparison(count / minutes, "lte", assertion.maxPerMinute ?? 0, "log rate");
@@ -757,7 +776,7 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
       const matching = (): ReturnType<ProtocolClient["matchingEvents"]> => {
         let matches = target.matchingEvents(string("event"), Number(assertion.since ?? 0));
         if (typeof assertion.pattern === "string") {
-          const pattern = new RegExp(assertion.pattern, typeof assertion.flags === "string" ? assertion.flags : "i");
+          const pattern = lineMatcher(assertion.pattern, typeof assertion.flags === "string" ? assertion.flags : "i");
           matches = matches.filter((event) => pattern.test(JSON.stringify(event.data)));
         }
         return matches;
@@ -824,18 +843,37 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
       const target = assertion.scope === "repository"
         ? confinedPath(repositoryRoot(), string("path"))
         : confinedPath(context.runDirectory, string("path"));
-      await readFile(target);
+      await assertFileReadable(target);
       return;
     }
     case "file.json": {
       const target = confinedPath(context.runDirectory, string("path"));
-      const value = JSON.parse(await readFile(target, "utf8")) as JsonValue;
+      let value: JsonValue;
+      try {
+        value = JSON.parse(await readFile(target, "utf8")) as JsonValue;
+      } catch (error) {
+        // Missing file or a half-written partial (SyntaxError) is a retryable "not ready yet".
+        throw new HarnessError(
+          "FILE_ASSERTION_FAILED",
+          `file ${relative(context.runDirectory, target)} is not readable JSON: ${(error as Error).message}`,
+        );
+      }
       const actual = getJsonPath(value, string("jsonPath", "$"));
       assertComparison(actual, assertion.operator ?? "equals", assertion.expected, `file ${relative(context.runDirectory, target)}`);
       return;
     }
     case "sqlite.query": {
-      const database = new DatabaseSync(confinedPath(context.runDirectory, string("path")), { readOnly: true });
+      let database: DatabaseSync;
+      try {
+        // An absent database file is a retryable "not created yet", not a hard error, so wait.until
+        // can poll for a database a live server writes shortly after the step begins.
+        database = new DatabaseSync(confinedPath(context.runDirectory, string("path")), { readOnly: true });
+      } catch (error) {
+        throw new HarnessError(
+          "SQLITE_ASSERTION_FAILED",
+          `sqlite database ${string("path")} is not open-able: ${(error as Error).message}`,
+        );
+      }
       try {
         const statement = database.prepare(string("sql"));
         const parameters = Array.isArray(assertion.parameters) ? assertion.parameters : [];

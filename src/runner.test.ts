@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadPins, resolveScenario } from "./manifest.js";
-import { assertComparison, deleteConfinedFile, extractValue, runScenario, samplePerformance, waitUntilAssertion } from "./runner.js";
+import { assertComparison, assertFileReadable, deleteConfinedFile, extractValue, lineMatcher, runScenario, samplePerformance, waitUntilAssertion } from "./runner.js";
 import { HarnessError } from "./errors.js";
 
 test("dry-run executes the application contract without downloads or Java", async () => {
@@ -63,6 +63,44 @@ test("wait.until timeout reports the last observed assertion failure", async () 
     }, 5, 1),
     /last observed value/,
   );
+});
+
+test("wait.until polls a file assertion until the file appears", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ouro-harness-wait-file-"));
+  const target = join(directory, "late.log");
+  const timer = setTimeout(() => void writeFile(target, "ready"), 40);
+  try {
+    // Pre-fix, file.exists threw a raw ENOENT (not a *_ASSERTION_FAILED HarnessError), so
+    // waitUntilAssertion rethrew on the first attempt and never polled.
+    const attempts = await waitUntilAssertion(() => assertFileReadable(target), 2_000, 10);
+    assert.ok(attempts >= 2, `expected polling before the file appeared, got ${attempts} attempt(s)`);
+  } finally {
+    clearTimeout(timer);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("missing files fail as retryable assertion failures", async () => {
+  await assert.rejects(
+    assertFileReadable(join(tmpdir(), `ouro-harness-absent-${process.pid}-${Date.now()}`)),
+    (error: unknown) => {
+      assert.ok(error instanceof HarnessError);
+      // The retry contract in waitUntilAssertion keys on this code shape.
+      assert.ok(error.code === "ASSERTION_FAILED" || error.code.endsWith("_ASSERTION_FAILED"), error.code);
+      return true;
+    },
+  );
+});
+
+test("log match regexes stay stateless so repeated tests count every line", () => {
+  // Regression: an author-supplied g/y flag made RegExp.test stateful, so a reused pattern skipped
+  // alternating lines in a .filter and miscounted matches.
+  const matcher = lineMatcher("ERROR", "gi");
+  const lines = ["ERROR one", "ERROR two", "ERROR three"];
+  assert.equal(lines.filter((line) => matcher.test(line)).length, 3);
+  assert.equal(matcher.flags.includes("g"), false);
+  assert.equal(matcher.flags.includes("y"), false);
+  assert.equal(matcher.ignoreCase, true);
 });
 
 test("contains comparisons handle missing JSON paths as assertion results", () => {
