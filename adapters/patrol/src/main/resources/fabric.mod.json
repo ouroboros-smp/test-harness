@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "ouro_harness_patrol_adapter",
+  "version": "${version}",
+  "name": "Ouroboros Harness Patrol Adapter",
+  "description": "Test-only reader for Patrol's public conflict-v2 ObjectShare contract.",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.ouroboros.harness.adapter.patrol.PatrolHarnessAdapterMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*",
+    "ouro_harness_bridge": "*"
+  }
+}
