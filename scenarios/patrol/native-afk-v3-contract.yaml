@@ -317,7 +317,12 @@ steps:
       - { type: adapter.invoke, adapter: patrol, operation: authority-outage-stop, args: {}, as: outage-stop }
     assertions:
       - { type: value.json, value: outage-start, jsonPath: durabilityAvailable, expected: false }
-      - { type: value.json, value: unavailable-status, jsonPath: status.afk, expected: false }
+      # Patrol omits the optional AFK extension as a pair when its provider is unavailable
+      # (PatrolInterop), so an outage publishes neither field rather than a definite false.
+      # Pin that contract on both keys: a consumer must be able to tell "authority down" from
+      # "not AFK", and the conflict-v3 adapter rejects the half-present pair.
+      - { type: value.json, value: unavailable-status, jsonPath: status.afk, operator: absent }
+      - { type: value.json, value: unavailable-status, jsonPath: status.afkRevision, operator: absent }
       - { type: value.json, value: unavailable-benefits, jsonPath: damageProtected, expected: false }
       - { type: value.json, value: unavailable-benefits, jsonPath: sleepExcluded, expected: false }
       - { type: value.json, value: unavailable-benefits, jsonPath: phantomSuppressed, expected: false }
