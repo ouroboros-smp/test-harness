@@ -17,16 +17,20 @@ import com.ouroboros.coffer.fabric.storage.StoredLock;
 import com.ouroboros.harness.bridge.HarnessAdapter;
 import com.ouroboros.harness.bridge.HarnessAdapters;
 import eu.pb4.common.protection.api.CommonProtection;
+import eu.pb4.common.protection.api.ProtectionProvider;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.NameAndId;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -52,6 +56,8 @@ import java.util.function.Function;
 
 public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAdapter {
     static final Set<String> SUPPORTED_OPERATIONS = Operation.names();
+    private static final Identifier BREAK_PROTECTION_ID =
+            Identifier.fromNamespaceAndPath("ouro_harness", "coffer_break_control");
     private static final Map<String, String> PROVIDER_KEYS = Map.of(
             "structures", "ouroboros:civilization/structure-registry/v1",
             "principals", "ouroboros:civilization/principal-directory/v1",
@@ -100,7 +106,9 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
         UUID player = arguments.has("player")
                 ? requiredPlayer(server, arguments.get("player").getAsString()).getUUID()
                 : null;
-        if ("original".equals(mode)) {
+        if ("protection".equals(provider)) {
+            applyBreakProtection(mode);
+        } else if ("original".equals(mode)) {
             restoreProvider(provider);
         } else {
             captureAndPublish(provider, mode, player);
@@ -119,6 +127,10 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
             String encodedPlayer = controls.getProperty("player." + provider);
             UUID player = encodedPlayer == null ? null : UUID.fromString(encodedPlayer);
             captureAndPublish(provider, mode, player);
+        }
+        String protectionMode = controls.getProperty("mode.protection");
+        if (protectionMode != null) {
+            applyBreakProtection(protectionMode);
         }
     }
 
@@ -140,6 +152,21 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
     private void restoreAllProviders() {
         for (String provider : Set.copyOf(capturedProviders)) {
             restoreProvider(provider);
+        }
+        applyBreakProtection("original");
+    }
+
+    private static void applyBreakProtection(String mode) {
+        CommonProtection.remove(BREAK_PROTECTION_ID);
+        switch (mode) {
+            case "original" -> {
+                return;
+            }
+            case "deny-break" ->
+                    CommonProtection.register(BREAK_PROTECTION_ID, new BreakProtectionProvider(false));
+            case "throwing" ->
+                    CommonProtection.register(BREAK_PROTECTION_ID, new BreakProtectionProvider(true));
+            default -> throw new IllegalArgumentException("unsupported protection mode: " + mode);
         }
     }
 
@@ -506,6 +533,7 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
                 case "continuity" -> Set.of(
                         "original", "missing", "malformed",
                         "restore-throwing", "acknowledge-throwing");
+                case "protection" -> Set.of("original", "deny-break", "throwing");
                 default -> throw new IllegalArgumentException("unknown provider: " + provider);
             };
             if (!modes.contains(mode)) {
@@ -527,6 +555,30 @@ public final class CofferHarnessAdapterMod implements ModInitializer, HarnessAda
 
         JsonElement invoke(MinecraftServer server, ServerLevel level, BlockPos pos, JsonObject arguments) {
             return invocation.invoke(server, level, pos, arguments);
+        }
+    }
+
+    private record BreakProtectionProvider(boolean throwing) implements ProtectionProvider {
+        @Override
+        public boolean isProtected(Level level, BlockPos pos) {
+            return true;
+        }
+
+        @Override
+        public boolean isAreaProtected(Level level, AABB area) {
+            return false;
+        }
+
+        @Override
+        public boolean canBreakBlock(
+                Level level,
+                BlockPos pos,
+                NameAndId profile,
+                Player player) {
+            if (throwing) {
+                throw new IllegalStateException("injected Common Protection failure");
+            }
+            return false;
         }
     }
 }

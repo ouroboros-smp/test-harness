@@ -72,13 +72,17 @@ steps:
       - { type: value.json, value: cleared, jsonPath: lock, operator: absent }
 
   - id: destructive_boundary
-    name: Real break, placement, and explosion paths remain vanilla despite interaction protection
+    name: Unauthorized attacks splinter the lock before vanilla destruction
     actions:
       - { type: console.command, command: "fill 13 63 -1 16 63 1 minecraft:stone" }
       - { type: console.command, command: "setblock 14 64 0 minecraft:chest" }
       - { type: console.command, command: "tp ApiStranger 14 64 2" }
       - { type: console.command, command: "gamemode creative ApiStranger" }
       - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 14, y: 64, z: 0, type: private, ownerPlayer: ApiOwner } }
+      - { type: client.break_block, client: stranger, x: 14, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: stranger, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 1 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 14, y: 64, z: 0 }, as: splintered }
       - { type: client.break_block, client: stranger, x: 14, y: 64, z: 0 }
       - type: wait.until
         assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
@@ -92,6 +96,9 @@ steps:
       - type: wait.until
         assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
     assertions:
+      - { type: value.json, value: splintered, jsonPath: pair.0.block, expected: "minecraft:chest" }
+      - { type: value.json, value: splintered, jsonPath: pair.0.bound, expected: false }
+      - { type: client.event, client: stranger, event: message, pattern: '^\{"message":"The lock splinters; the container is now accessible\."\}$', operator: equals, count: 1 }
       - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
       - { type: log.absent, pattern: "Coffer.*(?:cancelled|blocked).*(?:break|explosion|placement)" }
 

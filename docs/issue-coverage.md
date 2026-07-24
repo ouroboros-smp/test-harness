@@ -34,6 +34,7 @@ harness-only bridge on 2026-07-18.
 | #44 | Canonical Coffer counters on the installed FabricExporter endpoint | `coffer/metrics-exporter` |
 | #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
 | #46 | Coffer, Rooms, and Kinship principal, management, provider-failure, selective-transfer, phase-0/phase-1 retry, and restart contracts; pre-unfreeze completion remains blocked | `coffer/civilization-stack` |
+| #51 | Coffer first-attack lock splintering, Common Protection denial, authorized bypass, double-chest atomic clearing, and destruction handoff | `coffer/lock-breaking` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
 tracks behavioral production-stack interoperability. The executable Coffer
@@ -50,7 +51,10 @@ exact Coffer, Rooms, and Parcels boundary criteria. It is deliberately excluded
 from `TRACKED_ISSUES` and the maintained portfolio until a packaged Parcels
 provider exists. Activation requires proving that Parcels denial precedes Rooms
 storage HP, allowed mutation reaches Rooms, and Parcels never grants Coffer
-access.
+access. The `coffer/lock-breaking` scenario exercises the same Common Protection
+composition point with a deterministic harness provider and verifies the Coffer
+and vanilla handoff; it does not substitute for #47's packaged Parcels and Rooms
+stack.
 
 Issue [#46](https://github.com/ouroboros-smp/test-harness/issues/46) is not
 ready to close. `coffer/civilization-stack` now proves independent Rooms
