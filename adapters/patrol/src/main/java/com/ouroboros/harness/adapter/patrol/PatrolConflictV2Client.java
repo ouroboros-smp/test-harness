@@ -58,6 +58,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private AutoCloseable subscription;
     private long truncatedLiveEvents;
     private int liveEventCharacters;
+    private int liveEventNodes;
 
     public PatrolConflictV2Client(Supplier<Object> providerSupplier) {
         this.providerSupplier = java.util.Objects.requireNonNull(
@@ -186,6 +187,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             liveErrors.clear();
             truncatedLiveEvents = 0L;
             liveEventCharacters = 0;
+            liveEventNodes = 0;
         }
         JsonObject result = events();
         result.addProperty("cleared", true);
@@ -304,8 +306,10 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private void capture(Map<String, Object> event) {
         try {
             validateEvent(event, null);
-            JsonObject copy = toJson(event, 0).getAsJsonObject();
+            JsonBudget eventBudget = new JsonBudget(MAX_JSON_NODES, MAX_JSON_CHARACTERS);
+            JsonObject copy = toJson(event, 0, eventBudget).getAsJsonObject();
             int characters = copy.toString().length();
+            int nodes = eventBudget.usedNodes();
             if (characters > MAX_SERIALIZED_EVENT_CHARACTERS) {
                 throw new ContractFailure(true, "invalid_event",
                         "serialized event exceeds size bound");
@@ -313,13 +317,16 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             synchronized (evidenceLock) {
                 while (!liveEvents.isEmpty()
                         && (liveEvents.size() >= MAX_LIVE_EVENTS
-                        || liveEventCharacters + characters > MAX_EVIDENCE_CHARACTERS)) {
+                        || liveEventCharacters + characters > MAX_EVIDENCE_CHARACTERS
+                        || liveEventNodes + nodes > MAX_EVIDENCE_NODES)) {
                     LiveEvent removed = liveEvents.removeFirst();
                     liveEventCharacters -= removed.characters();
+                    liveEventNodes -= removed.nodes();
                     truncatedLiveEvents++;
                 }
-                liveEvents.addLast(new LiveEvent(copy, characters));
+                liveEvents.addLast(new LiveEvent(copy, characters, nodes));
                 liveEventCharacters += characters;
+                liveEventNodes += nodes;
             }
         } catch (RuntimeException failure) {
             recordLiveError(message(failure));
@@ -777,6 +784,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             liveEvents.clear();
             liveErrors.clear();
             liveEventCharacters = 0;
+            liveEventNodes = 0;
         }
     }
 
@@ -789,12 +797,13 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private record EventIdentity(UUID eventId, UUID aggregateId, long revision) {
     }
 
-    private record LiveEvent(JsonObject value, int characters) {
+    private record LiveEvent(JsonObject value, int characters, int nodes) {
     }
 
     private static final class JsonBudget {
         private int remainingNodes;
         private int remainingCharacters;
+        private int usedNodes;
 
         private JsonBudget(int remainingNodes, int remainingCharacters) {
             this.remainingNodes = remainingNodes;
@@ -806,6 +815,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                 throw new ContractFailure(true, "invalid_json",
                         "peer JSON exceeds node bound");
             }
+            usedNodes++;
         }
 
         private void claimCharacters(int characters) {
@@ -814,6 +824,10 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                 throw new ContractFailure(true, "invalid_json",
                         "peer JSON exceeds character bound");
             }
+        }
+
+        private int usedNodes() {
+            return usedNodes;
         }
     }
 

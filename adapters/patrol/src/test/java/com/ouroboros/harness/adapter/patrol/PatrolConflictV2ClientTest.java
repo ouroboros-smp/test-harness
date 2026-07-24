@@ -255,6 +255,25 @@ class PatrolConflictV2ClientTest {
         assertEquals(0, liveResult.getAsJsonArray("errors").size());
     }
 
+    @Test
+    void cumulativeNodeBudgetBoundsRetainedLiveEvidence() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        PatrolConflictV2Client client = new PatrolConflictV2Client(
+                () -> protocol(status(400L), List.of(), subscriber));
+        assertTrue(client.describe().get("installed").getAsBoolean());
+        for (long revision = 1; revision <= 400; revision++) {
+            Map<String, Object> event = event(revision, "hostile", AGGRESSOR);
+            event.put("nodePadding", java.util.Collections.nCopies(800, false));
+            subscriber.get().accept(event);
+        }
+
+        JsonObject liveResult = client.events();
+
+        assertTrue(liveResult.get("count").getAsInt() < 400);
+        assertTrue(liveResult.get("truncated").getAsLong() > 0L);
+        assertEquals(0, liveResult.getAsJsonArray("errors").size());
+    }
+
     private static Map<String, Object> protocol(
             Map<String, Object> status,
             List<Map<String, Object>> replay,
