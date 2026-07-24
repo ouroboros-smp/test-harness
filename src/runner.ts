@@ -22,7 +22,7 @@ import type {
   ScenarioStep,
   StepResult,
 } from "./types.js";
-import { ensureDirectory, getFreePort, getJsonPath, interpolate, percentile, randomToken, withTimeout } from "./utils.js";
+import { elapsedTimer, ensureDirectory, getFreePort, getJsonPath, interpolate, percentile, randomToken, withTimeout } from "./utils.js";
 
 interface RunnerContext {
   scenario: Scenario;
@@ -42,6 +42,7 @@ interface RunnerContext {
 export async function runScenario(scenario: Scenario, basePins: FabricPins, options: RunOptions): Promise<ScenarioReport> {
   const pins: FabricPins = { ...basePins, ...scenario.pins };
   const started = Date.now();
+  const elapsed = elapsedTimer();
   const runId = `${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${scenario.id.replaceAll("/", "-")}-${randomUUID().slice(0, 8)}`;
   const output = await ensureDirectory(options.output ?? join(repositoryRoot(), ".ouro-harness", "runs", runId));
   const runDirectory = await ensureDirectory(join(output, "server"));
@@ -68,7 +69,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
       exitCode: 0,
       startedAt: new Date(started).toISOString(),
       finishedAt: now,
-      durationMs: Date.now() - started,
+      durationMs: elapsed(),
       steps,
       findings: [],
       artifacts: {},
@@ -195,6 +196,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
   }
 
   const finished = Date.now();
+  const durationMs = elapsed();
   const allowed = (scenario.server?.allowedLogPatterns ?? []).map((pattern) => new RegExp(pattern));
   const findings = server.monitor.findings.filter((finding) => !allowed.some((pattern) => pattern.test(finding.line)));
   const report: ScenarioReport = {
@@ -206,7 +208,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
     exitCode: originalError ? 1 : 0,
     startedAt: new Date(started).toISOString(),
     finishedAt: new Date(finished).toISOString(),
-    durationMs: finished - started,
+    durationMs,
     steps: results,
     findings,
     ...(context.tickSamples.length
@@ -214,7 +216,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
           samples: context.tickSamples.length,
           ...samplePerformance(context.tickSamples),
           errorLines: findings.length,
-          errorsPerMinute: findings.length / Math.max(1 / 60, (finished - started) / 60_000),
+          errorsPerMinute: findings.length / Math.max(1 / 60, durationMs / 60_000),
         } }
       : {}),
     artifacts: {
@@ -233,6 +235,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
 
 async function executeStep(context: RunnerContext, step: ScenarioStep): Promise<StepResult> {
   const started = Date.now();
+  const elapsed = elapsedTimer();
   const evidence: Record<string, JsonValue> = {};
   try {
     const task = async () => {
@@ -252,7 +255,7 @@ async function executeStep(context: RunnerContext, step: ScenarioStep): Promise<
       status: "passed",
       startedAt: new Date(started).toISOString(),
       finishedAt: new Date(finished).toISOString(),
-      durationMs: finished - started,
+      durationMs: elapsed(),
       evidence,
     };
   } catch (error) {
@@ -263,7 +266,7 @@ async function executeStep(context: RunnerContext, step: ScenarioStep): Promise<
       status: "failed",
       startedAt: new Date(started).toISOString(),
       finishedAt: new Date(finished).toISOString(),
-      durationMs: finished - started,
+      durationMs: elapsed(),
       error: errorMessage(error),
       evidence,
     };

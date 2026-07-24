@@ -3,10 +3,19 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { finished } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { HarnessError, TimeoutError } from "./errors.js";
 import type { JsonValue } from "./types.js";
+
+// Report durations must come from the monotonic clock: wall-clock deltas go
+// negative when NTP steps the host clock during a run, which violates the
+// report schema's durationMs >= 0 contract.
+export function elapsedTimer(): () => number {
+  const started = performance.now();
+  return () => Math.max(0, Math.round(performance.now() - started));
+}
 
 export async function ensureDirectory(path: string): Promise<string> {
   const absolute = resolve(path);
