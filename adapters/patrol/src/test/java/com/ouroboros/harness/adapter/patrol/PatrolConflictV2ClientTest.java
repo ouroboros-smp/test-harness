@@ -274,6 +274,55 @@ class PatrolConflictV2ClientTest {
         assertEquals(0, liveResult.getAsJsonArray("errors").size());
     }
 
+    @Test
+    void combatV3ReadsAbsoluteSymmetricTagsAndVictimAuthoredAggregateEvents() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        Map<String, Object> victimEvent = combatEvent(2L, VICTIM, "victim", AGGRESSOR);
+        PatrolConflictV2Client client = PatrolConflictV2Client.combatV3(
+                () -> combatProtocol(
+                        combatStatus(VICTIM, "victim", AGGRESSOR, 1_000L, 31_000L, 2L),
+                        List.of(victimEvent), subscriber));
+
+        JsonObject status = client.status(VICTIM);
+        JsonObject replay = client.replay(VICTIM, 0L);
+        subscriber.get().accept(victimEvent);
+        JsonObject live = client.events();
+
+        assertEquals(3, status.get("protocolVersion").getAsInt());
+        assertEquals(2, status.get("eventSchemaVersion").getAsInt());
+        assertEquals(31_000L,
+                status.getAsJsonObject("status").get("taggedUntil").getAsLong());
+        assertEquals("victim",
+                status.getAsJsonObject("status").get("participationRole").getAsString());
+        assertEquals(1, replay.get("count").getAsInt());
+        assertTrue(replay.getAsJsonObject("checks").get("strictlyIncreasing").getAsBoolean());
+        assertEquals("victim", live.getAsJsonArray("events").get(0).getAsJsonObject()
+                .getAsJsonObject("data").get("participantRole").getAsString());
+        assertEquals(AGGRESSOR.toString(), live.getAsJsonArray("events").get(0).getAsJsonObject()
+                .get("actor").getAsString());
+    }
+
+    @Test
+    void combatV3EnforcesExactFiveSecondAndTenMinuteDurationBounds() {
+        for (long duration : List.of(5_000L, 600_000L)) {
+            PatrolConflictV2Client accepted = PatrolConflictV2Client.combatV3(
+                    () -> combatProtocol(
+                            combatStatus(AGGRESSOR, "attacker", VICTIM,
+                                    1_000L, 1_000L + duration, 1L),
+                            List.of(), new AtomicReference<>()));
+            assertFalse(accepted.status(AGGRESSOR).has("error"));
+        }
+        for (long duration : List.of(4_999L, 600_001L)) {
+            PatrolConflictV2Client rejected = PatrolConflictV2Client.combatV3(
+                    () -> combatProtocol(
+                            combatStatus(AGGRESSOR, "attacker", VICTIM,
+                                    1_000L, 1_000L + duration, 1L),
+                            List.of(), new AtomicReference<>()));
+            assertEquals("invalid_status",
+                    rejected.status(AGGRESSOR).get("error").getAsString());
+        }
+    }
+
     private static Map<String, Object> protocol(
             Map<String, Object> status,
             List<Map<String, Object>> replay,
@@ -306,6 +355,83 @@ class PatrolConflictV2ClientTest {
         status.put("banished", false);
         status.put("revision", revision);
         return status;
+    }
+
+    private static Map<String, Object> combatProtocol(
+            Map<String, Object> status,
+            List<Map<String, Object>> replay,
+            AtomicReference<Consumer<Map<String, Object>>> subscriber) {
+        return Map.of(
+                "protocolVersion", 3,
+                "eventSchemaVersion", 2,
+                "status", (Function<UUID, Map<String, Object>>) ignored -> status,
+                "replay", (Function<Map<String, Object>, List<Map<String, Object>>>)
+                        ignored -> replay,
+                "subscribe", (Function<Consumer<Map<String, Object>>, AutoCloseable>) consumer -> {
+                    subscriber.set(consumer);
+                    return () -> subscriber.compareAndSet(consumer, null);
+                });
+    }
+
+    private static Map<String, Object> combatStatus(
+            UUID player,
+            String role,
+            UUID counterparty,
+            long participatedAt,
+            long taggedUntil,
+            long revision) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("available", true);
+        status.put("playerId", player.toString());
+        status.put("principal", "player:" + player);
+        status.put("aggregateId", player.toString());
+        status.put("state", "clear");
+        status.put("wanted", false);
+        status.put("tier", 0);
+        status.put("lastHostileAt", 0L);
+        status.put("banished", false);
+        status.put("revision", revision);
+        status.put("lastParticipationAt", participatedAt);
+        status.put("taggedUntil", taggedUntil);
+        status.put("participationRole", role);
+        status.put("participationCounterparty", counterparty.toString());
+        status.put("participationCounterpartyPrincipal", "player:" + counterparty);
+        status.put("participationWorld", "minecraft:overworld");
+        status.put("participationPosition", Map.of("x", 1.0, "y", 64.0, "z", 2.0));
+        return status;
+    }
+
+    private static Map<String, Object> combatEvent(
+            long revision, UUID aggregateId, String role, UUID counterparty) {
+        Map<String, Object> data = new LinkedHashMap<>(combatStatus(
+                aggregateId, role.equals("victim") ? "victim" : "attacker",
+                counterparty, 1_000L, 31_000L, revision));
+        data.remove("available");
+        data.put("participantRole", role);
+        data.put("counterparty", counterparty.toString());
+        data.put("counterpartyPrincipal", "player:" + counterparty);
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", new UUID(1L, revision).toString());
+        event.put("eventType", "patrol.combat_tag_changed");
+        event.put("type", "patrol.combat_tag_changed");
+        event.put("action", "combat_tagged");
+        event.put("aggregateType", "minecraft:player");
+        event.put("aggregateId", aggregateId.toString());
+        event.put("aggregateRevision", revision);
+        event.put("revision", revision);
+        event.put("actorPlayerId", AGGRESSOR.toString());
+        event.put("actor", AGGRESSOR.toString());
+        event.put("actingPrincipal", "player:" + AGGRESSOR);
+        event.put("principal", "player:" + AGGRESSOR);
+        event.put("worldKey", "minecraft:overworld");
+        event.put("world", "minecraft:overworld");
+        event.put("position", Map.of("x", 1.0, "y", 64.0, "z", 2.0));
+        event.put("occurredAt", Instant.ofEpochMilli(1_000L).toString());
+        event.put("timestamp", Instant.ofEpochMilli(1_000L).toString());
+        event.put("schemaVersion", 2);
+        event.put("payload", data);
+        event.put("data", data);
+        return event;
     }
 
     private static Map<String, Object> event(long revision, String action, UUID aggregateId) {

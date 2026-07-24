@@ -21,15 +21,16 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Strict JDK-only reader for Patrol's ObjectShare conflict-v2 contract.
+ * Strict JDK-only reader for Patrol's versioned ObjectShare conflict contracts.
  *
  * <p>The adapter intentionally has no link to Patrol classes. All peer values are treated as
  * hostile inputs, validated, bounded, and copied into ordinary JSON before reaching the harness.
  */
 public final class PatrolConflictV2Client implements AutoCloseable {
     public static final String KEY = "ouroboros:civilization/patrol-conflict/v2";
-    private static final int PROTOCOL_VERSION = 2;
-    private static final int EVENT_SCHEMA_VERSION = 1;
+    public static final String KEY_V3 = "ouroboros:civilization/patrol-conflict/v3";
+    private static final int V2_PROTOCOL_VERSION = 2;
+    private static final int V2_EVENT_SCHEMA_VERSION = 1;
     private static final int MAX_REPLAY_EVENTS = 2_048;
     private static final int MAX_LIVE_EVENTS = 2_048;
     private static final int MAX_LIVE_ERRORS = 64;
@@ -47,10 +48,17 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private static final Set<String> ACTIONS = Set.of(
             "hostile", "wanted", "cooling", "cleared", "pardoned",
             "banishment_changed", "hostility_expired");
+    private static final Set<String> COMBAT_ACTIONS = Set.of(
+            "combat_tagged", "combat_tag_cleared", "combat_tag_expired");
     private static final Set<String> PARTICIPANT_ROLES =
             Set.of("aggressor", "subject", "administrator", "system");
+    private static final Set<String> V3_PARTICIPANT_ROLES =
+            Set.of("aggressor", "victim", "subject", "administrator", "system");
 
     private final Supplier<Object> providerSupplier;
+    private final int protocolVersion;
+    private final int eventSchemaVersion;
+    private final boolean combatTags;
     private final Object evidenceLock = new Object();
     private final ArrayDeque<LiveEvent> liveEvents = new ArrayDeque<>();
     private final ArrayDeque<String> liveErrors = new ArrayDeque<>();
@@ -61,8 +69,23 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private int liveEventNodes;
 
     public PatrolConflictV2Client(Supplier<Object> providerSupplier) {
+        this(providerSupplier, V2_PROTOCOL_VERSION, V2_EVENT_SCHEMA_VERSION, false);
+    }
+
+    static PatrolConflictV2Client combatV3(Supplier<Object> providerSupplier) {
+        return new PatrolConflictV2Client(providerSupplier, 3, 2, true);
+    }
+
+    private PatrolConflictV2Client(
+            Supplier<Object> providerSupplier,
+            int protocolVersion,
+            int eventSchemaVersion,
+            boolean combatTags) {
         this.providerSupplier = java.util.Objects.requireNonNull(
                 providerSupplier, "providerSupplier");
+        this.protocolVersion = protocolVersion;
+        this.eventSchemaVersion = eventSchemaVersion;
+        this.combatTags = combatTags;
     }
 
     public JsonObject describe() {
@@ -261,17 +284,17 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         }
         if (raw == null) {
             throw new ContractFailure(false, "provider_missing",
-                    "Patrol conflict-v2 provider is not installed");
+                    "Patrol conflict-v" + protocolVersion + " provider is not installed");
         }
         Map<String, Object> protocol = stringMap(raw, "protocol", "protocol_shape");
-        if (exactLong(protocol.get("protocolVersion"), "protocolVersion") != PROTOCOL_VERSION) {
+        if (exactLong(protocol.get("protocolVersion"), "protocolVersion") != protocolVersion) {
             throw new ContractFailure(true, "protocol_version",
-                    "expected protocolVersion " + PROTOCOL_VERSION);
+                    "expected protocolVersion " + protocolVersion);
         }
         if (exactLong(protocol.get("eventSchemaVersion"), "eventSchemaVersion")
-                != EVENT_SCHEMA_VERSION) {
+                != eventSchemaVersion) {
             throw new ContractFailure(true, "event_schema_version",
-                    "expected eventSchemaVersion " + EVENT_SCHEMA_VERSION);
+                    "expected eventSchemaVersion " + eventSchemaVersion);
         }
         if (!(protocol.get("status") instanceof Function<?, ?> status)
                 || !(protocol.get("replay") instanceof Function<?, ?> replay)
@@ -333,7 +356,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         }
     }
 
-    private static void validateStatus(Map<String, Object> status, UUID expectedPlayer) {
+    private void validateStatus(Map<String, Object> status, UUID expectedPlayer) {
         boolean available = requiredBoolean(status, "available", "invalid_status");
         validateStatusIdentity(status, expectedPlayer, "invalid_status");
         if (!available) {
@@ -357,7 +380,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         }
     }
 
-    private static void validateStatusSnapshot(
+    private void validateStatusSnapshot(
             Map<String, Object> status, UUID expectedPlayer, String code) {
         validateStatusIdentity(status, expectedPlayer, code);
         String state = requiredString(status, "state", code);
@@ -378,23 +401,77 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         }
         validateLocation(status, code);
         validateContext(status, code);
+        if (combatTags) validateCombatStatus(status, code);
     }
 
-    private static EventIdentity validateEvent(
+    private static void validateCombatStatus(Map<String, Object> status, String code) {
+        long participatedAt = nonNegativeLong(status, "lastParticipationAt", code);
+        long taggedUntil = nonNegativeLong(status, "taggedUntil", code);
+        boolean hasRole = status.get("participationRole") != null;
+        boolean hasCounterparty = status.get("participationCounterparty") != null;
+        boolean hasPrincipal = status.get("participationCounterpartyPrincipal") != null;
+        boolean hasWorld = status.get("participationWorld") != null;
+        boolean hasPosition = status.get("participationPosition") != null;
+        if (participatedAt == 0L || taggedUntil == 0L) {
+            if (participatedAt != 0L || taggedUntil != 0L || hasRole || hasCounterparty
+                    || hasPrincipal || hasWorld || hasPosition) {
+                throw new ContractFailure(true, code,
+                        "inactive combat participation fields are inconsistent");
+            }
+            return;
+        }
+        long duration = taggedUntil - participatedAt;
+        if (duration < 5_000L || duration > 600_000L) {
+            throw new ContractFailure(true, code,
+                    "combat participation duration is outside the contract");
+        }
+        String role = requiredString(status, "participationRole", code);
+        if (!Set.of("attacker", "victim").contains(role)) {
+            throw new ContractFailure(true, code, "participationRole is invalid");
+        }
+        if (!hasCounterparty || !hasPrincipal || hasWorld != hasPosition) {
+            throw new ContractFailure(true, code,
+                    "active combat participation fields are incomplete");
+        }
+        UUID counterparty = requiredUuid(status, "participationCounterparty", code);
+        if (!("player:" + counterparty).equals(
+                requiredString(status, "participationCounterpartyPrincipal", code))) {
+            throw new ContractFailure(true, code,
+                    "participation counterparty principal does not match");
+        }
+        if (hasWorld) {
+            if (requiredString(status, "participationWorld", code).isBlank()) {
+                throw new ContractFailure(true, code, "participationWorld must not be blank");
+            }
+            Map<String, Object> position = stringMap(
+                    status.get("participationPosition"), "participationPosition", code);
+            finiteNumber(position, "x", code);
+            finiteNumber(position, "y", code);
+            finiteNumber(position, "z", code);
+        }
+    }
+
+    private EventIdentity validateEvent(
             Map<String, Object> event, UUID expectedAggregate) {
         UUID eventId = requiredUuid(event, "eventId", "invalid_event");
         String eventType = requiredString(event, "eventType", "invalid_event");
+        Set<String> eventTypes = combatTags
+                ? Set.of("patrol.heat_changed", "patrol.wanted_changed",
+                        "patrol.combat_tag_changed")
+                : Set.of("patrol.heat_changed", "patrol.wanted_changed");
         if (!eventType.equals(requiredString(event, "type", "invalid_event"))
-                || !Set.of("patrol.heat_changed", "patrol.wanted_changed").contains(eventType)) {
+                || !eventTypes.contains(eventType)) {
             throw new ContractFailure(true, "invalid_event", "event type is invalid");
         }
         String action = requiredString(event, "action", "invalid_event");
-        if (!ACTIONS.contains(action)) {
+        if (!ACTIONS.contains(action) && !(combatTags && COMBAT_ACTIONS.contains(action))) {
             throw new ContractFailure(true, "invalid_event",
                     "event action is invalid");
         }
         boolean heatAction = action.equals("hostile") || action.equals("hostility_expired");
-        if (heatAction != eventType.equals("patrol.heat_changed")) {
+        boolean combatAction = COMBAT_ACTIONS.contains(action);
+        if (heatAction != eventType.equals("patrol.heat_changed")
+                || combatAction != eventType.equals("patrol.combat_tag_changed")) {
             throw new ContractFailure(true, "invalid_event",
                     "event action and type disagree");
         }
@@ -415,7 +492,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             throw new ContractFailure(true, "invalid_event",
                     "event revisions must be equal and positive");
         }
-        if (exactLong(event.get("schemaVersion"), "schemaVersion") != EVENT_SCHEMA_VERSION) {
+        if (exactLong(event.get("schemaVersion"), "schemaVersion") != eventSchemaVersion) {
             throw new ContractFailure(true, "invalid_event", "event schema version is invalid");
         }
         String occurredAt = requiredString(event, "occurredAt", "invalid_event");
@@ -443,7 +520,8 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         }
         validateStatusSnapshot(data, aggregateId, "invalid_event");
         String role = requiredString(data, "participantRole", "invalid_event");
-        if (!PARTICIPANT_ROLES.contains(role)) {
+        Set<String> roles = combatTags ? V3_PARTICIPANT_ROLES : PARTICIPANT_ROLES;
+        if (!roles.contains(role)) {
             throw new ContractFailure(true, "invalid_event",
                     "event participantRole is invalid");
         }
@@ -471,6 +549,11 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             if ("aggressor".equals(role) && !actor.equals(aggregateId)) {
                 throw new ContractFailure(true, "invalid_event",
                         "aggressor event actor must match the aggregate");
+            }
+            if ("victim".equals(role)
+                    && !actor.equals(requiredUuid(data, "counterparty", "invalid_event"))) {
+                throw new ContractFailure(true, "invalid_event",
+                        "victim event actor must match the counterparty");
             }
         }
         validateLocation(event, "invalid_event");
@@ -544,10 +627,10 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         uuid(principal.substring("player:".length()), name, code);
     }
 
-    private static JsonObject metadata() {
+    private JsonObject metadata() {
         JsonObject result = new JsonObject();
-        result.addProperty("protocolVersion", PROTOCOL_VERSION);
-        result.addProperty("eventSchemaVersion", EVENT_SCHEMA_VERSION);
+        result.addProperty("protocolVersion", protocolVersion);
+        result.addProperty("eventSchemaVersion", eventSchemaVersion);
         return result;
     }
 
@@ -561,16 +644,16 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         return checks;
     }
 
-    private static JsonObject failure(ContractFailure failure) {
+    private JsonObject failure(ContractFailure failure) {
         return failure(failure.installed(), failure.code(), failure);
     }
 
-    private static JsonObject failure(
+    private JsonObject failure(
             boolean installed, String code, RuntimeException failure) {
         return failure(installed, code, message(failure));
     }
 
-    private static JsonObject failure(boolean installed, String code, String detail) {
+    private JsonObject failure(boolean installed, String code, String detail) {
         JsonObject result = metadata();
         result.addProperty("installed", installed);
         result.addProperty("available", false);
