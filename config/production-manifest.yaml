@@ -67,8 +67,8 @@ mods:
     owner: first-party
     bucket: first-party
     enabled: true
-    version: 0.4.0-alpha
-    file: patrol-fabric-0.4.0-alpha.jar
+    version: 1.2.1
+    file: patrol-fabric-1.2.1.jar
     repository: https://github.com/ouroboros-smp/Patrol
     portfolioTarget: patrol
     obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]

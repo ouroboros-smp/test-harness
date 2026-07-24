@@ -8,7 +8,7 @@ variables:
   ouroveilRepository: ../world-border-veil
   mehenRepository: ../mehen
   ourometricsRepository: ../ouro-metrics
-  patrolRepository: ../patrols
+  patrolRepository: ../Patrol
   roomsRepository: ../rooms-and-structures
   watershedRepository: ../watershed
   wildanimalbalancerRepository: ../WildAnimalBalancer
