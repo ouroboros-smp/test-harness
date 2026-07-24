@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -347,14 +348,27 @@ public final class HarnessBridgeMod implements ModInitializer {
             for (Entity entity : level.getAllEntities()) {
                 String id = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
                 if (type != null && !type.equals(id)) continue;
-                result.add(object(
+                JsonObject snapshot = object(
                         "uuid", entity.getUUID().toString(),
                         "type", id,
                         "dimension", level.dimension().identifier().toString(),
                         "x", entity.getX(),
                         "y", entity.getY(),
                         "z", entity.getZ(),
-                        "removed", entity.isRemoved()));
+                        "removed", entity.isRemoved());
+                if (entity instanceof Container inventory) {
+                    JsonArray items = new JsonArray();
+                    for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+                        ItemStack stack = inventory.getItem(slot);
+                        if (stack.isEmpty()) continue;
+                        items.add(object(
+                                "slot", slot,
+                                "item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
+                                "count", stack.getCount()));
+                    }
+                    snapshot.add("inventory", items);
+                }
+                result.add(snapshot);
             }
         }
         return result;
@@ -407,7 +421,14 @@ public final class HarnessBridgeMod implements ModInitializer {
                 future.completeExceptionally(error);
             }
         });
-        return future.get(15, TimeUnit.SECONDS);
+        try {
+            return future.get(15, TimeUnit.SECONDS);
+        } catch (ExecutionException wrapped) {
+            Throwable cause = wrapped.getCause();
+            if (cause instanceof Exception exception) throw exception;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("server-thread operation failed", cause);
+        }
     }
 
     private ServerPlayer findPlayer(String name) {

@@ -1,0 +1,101 @@
+schemaVersion: 1
+id: coffer/api-protection-packaging
+title: Coffer public API, Common Protection, ObjectShare, and server-only packaging
+description: Exercises every adapter-exposed public API mutation and read against the packaged server jar.
+issues: [22]
+tags: [coffer, api, protection, objectshare, packaging]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+clients:
+  - { name: owner, username: ApiOwner, gameMode: creative }
+  - { name: stranger, username: ApiStranger }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+steps:
+  - id: packaging
+    name: Inspect the candidate server jar before startup
+    actions:
+      - { type: process.exec, command: [jar, tf, "${artifact.consumer}"], as: server-jar }
+    assertions:
+      - { type: value.json, value: server-jar, operator: contains, expected: "com/ouroboros/coffer/api/CofferApi.class" }
+      - { type: value.json, value: server-jar, operator: not_contains, expected: "com/ouroboros/coffer/client/" }
+      - { type: value.json, value: server-jar, operator: not_contains, expected: "coffer-client" }
+
+  - id: operations
+    name: Invoke bind, read, trust, flag, policy, protection, registry, and clear operations
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 32 32" }
+      - { type: console.command, command: "setblock 12 64 0 minecraft:chest" }
+      - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: ApiOwner, slot: 0, item: "minecraft:tripwire_hook", count: 1 } }
+      - { type: client.select_hotbar, client: owner, slot: 0 }
+      - { type: adapter.invoke, adapter: coffer, operation: clear, args: { x: 12, y: 64, z: 0 }, as: clear-unbound }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 12, y: 64, z: 0, type: key, ownerPlayer: ApiOwner, keyFromPlayer: ApiOwner }, as: bind }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 12, y: 64, z: 0 }, as: pair }
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { x: 12, y: 64, z: 0, players: [ApiStranger] }, as: trust }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 12, y: 64, z: 0, flag: copper_golems, value: false }, as: flag }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 12, y: 64, z: 0, flag: copper_golems, value: null }, as: reset-flag }
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { x: 12, y: 64, z: 0, ownershipMode: premises, accessScopes: [structure_residents, kinship_members] }, as: policy }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 12, y: 64, z: 0, player: ApiStranger }, as: access }
+      - { type: adapter.invoke, adapter: coffer, operation: protection, args: { x: 12, y: 64, z: 0, player: ApiStranger }, as: protection }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { x: 12, y: 64, z: 0 }, as: registry }
+    assertions:
+      - { type: value.json, value: clear-unbound, jsonPath: updated, expected: false }
+      - { type: value.json, value: bind, jsonPath: lock.key.id, expected: "minecraft:tripwire_hook" }
+      - { type: value.json, value: pair, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: trust, jsonPath: lock.trusted.0, operator: exists }
+      - { type: value.json, value: flag, jsonPath: lock.flagOverrides.copper_golems, expected: false }
+      - { type: value.json, value: reset-flag, jsonPath: lock.flagOverrides.copper_golems, operator: absent }
+      - { type: value.json, value: policy, jsonPath: lock.ownershipMode, expected: premises }
+      - { type: value.json, value: access, jsonPath: allowed, expected: true }
+      - { type: value.json, value: protection, jsonPath: bound, expected: true }
+      - { type: value.json, value: protection, jsonPath: interact, expected: true }
+      - { type: value.json, value: protection, jsonPath: break, expected: true }
+      - { type: value.json, value: protection, jsonPath: explosion, expected: true }
+      - { type: value.json, value: protection, jsonPath: placement, expected: true }
+      - { type: value.json, value: registry, jsonPath: aggregateId, operator: exists }
+      - { type: value.json, value: registry, jsonPath: revision, operator: gte, expected: 1 }
+
+  - id: failures
+    name: Invalid arguments, missing players, and unbound targets fail explicitly
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 12, y: 64, z: 0, type: combination, ownerPlayer: ApiOwner }, allowFailure: true, as: invalid-type }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 12, y: 64, z: 0, player: MissingPlayer }, allowFailure: true, as: missing-player }
+      - { type: adapter.invoke, adapter: coffer, operation: clear, args: { x: 12, y: 64, z: 0 }, as: clear-bound }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 12, y: 64, z: 0 }, as: cleared }
+    assertions:
+      - { type: value.json, value: invalid-type, operator: contains, expected: "unknown Coffer lock type" }
+      - { type: value.json, value: missing-player, operator: contains, expected: "player is not online" }
+      - { type: value.json, value: clear-bound, jsonPath: updated, expected: true }
+      - { type: value.json, value: cleared, jsonPath: lock, operator: absent }
+
+  - id: destructive_boundary
+    name: Real break, placement, and explosion paths remain vanilla despite interaction protection
+    actions:
+      - { type: console.command, command: "fill 13 63 -1 16 63 1 minecraft:stone" }
+      - { type: console.command, command: "setblock 14 64 0 minecraft:chest" }
+      - { type: console.command, command: "tp ApiStranger 14 64 2" }
+      - { type: console.command, command: "gamemode creative ApiStranger" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 14, y: 64, z: 0, type: private, ownerPlayer: ApiOwner } }
+      - { type: client.break_block, client: stranger, x: 14, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
+      - { type: console.command, command: "item replace entity ApiOwner hotbar.0 with minecraft:chest 1" }
+      - { type: console.command, command: "tp ApiOwner 14 64 2" }
+      - { type: client.select_hotbar, client: owner, slot: 0 }
+      - { type: client.place_block, client: owner, x: 14, y: 63, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:chest" }
+      - { type: console.command, command: "summon minecraft:tnt 14.5 64 0.5 {fuse:0}" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
+    assertions:
+      - { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=14&y=64&z=0", jsonPath: block, expected: "minecraft:air" }
+      - { type: log.absent, pattern: "Coffer.*(?:cancelled|blocked).*(?:break|explosion|placement)" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions: [{ type: server.stop }]

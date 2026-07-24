@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -212,12 +212,7 @@ export async function runScenario(scenario: Scenario, basePins: FabricPins, opti
     ...(context.tickSamples.length
       ? { performance: {
           samples: context.tickSamples.length,
-          mspt: {
-            p50: percentile(context.tickSamples, 0.5),
-            p95: percentile(context.tickSamples, 0.95),
-            p99: percentile(context.tickSamples, 0.99),
-            max: Math.max(...context.tickSamples),
-          },
+          ...samplePerformance(context.tickSamples),
           errorLines: findings.length,
           errorsPerMinute: findings.length / Math.max(1 / 60, (finished - started) / 60_000),
         } }
@@ -369,17 +364,29 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       const path = `/v1/world/block?dimension=${encodeURIComponent(dimension)}&x=${placed.x}&y=${placed.y}&z=${placed.z}`;
       const before = await context.bridge.request("GET", path) as Record<string, JsonValue>;
       let observed = before;
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      const expectChange = action.expectChange !== false;
+      const maximumAttempts = expectChange ? 3 : 1;
+      for (let attempt = 1; attempt <= maximumAttempts; attempt++) {
         await target.placeBlock(pos.x, pos.y, pos.z, normalizedFace);
         const started = Date.now();
         while (Date.now() - started < 2_000) {
           await new Promise((resolveWait) => setTimeout(resolveWait, 100));
           observed = await context.bridge.request("GET", path) as Record<string, JsonValue>;
           if (observed.state !== before.state) {
+            if (!expectChange) {
+              throw new HarnessError(
+                "UNEXPECTED_BLOCK_PLACEMENT",
+                `${string("client")} placement at ${placed.x},${placed.y},${placed.z} unexpectedly changed state to ${String(observed.state)}`,
+              );
+            }
             evidence[`placement:${string("client")}`] = { attempts: attempt, before, after: observed };
             return;
           }
         }
+      }
+      if (!expectChange) {
+        evidence[`placement-refused:${string("client")}`] = { attempts: maximumAttempts, before, after: observed };
+        return;
       }
       throw new HarnessError(
         "BLOCK_PLACEMENT_TIMEOUT",
@@ -393,7 +400,11 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       const command = string("command");
       const before = context.server.monitor.lines.length;
       context.server.command(command);
-      if (typeof action.waitFor === "string") await waitForLog(context, new RegExp(action.waitFor), number("timeoutMs", 10_000), before);
+      if (typeof action.waitFor === "string") {
+        await waitForLog(context, new RegExp(action.waitFor), number("timeoutMs", 10_000), before);
+      } else {
+        await context.bridge.request("POST", "/v1/ticks/wait", { ticks: 1 });
+      }
       const output = context.server.monitor.lines.slice(before);
       if (typeof action.as === "string") context.values[action.as] = output;
       evidence[`command:${command}`] = output;
@@ -407,6 +418,19 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
     }
     case "wait.duration": await new Promise((resolveWait) => setTimeout(resolveWait, number("milliseconds", number("seconds", 0) * 1000))); return;
     case "wait.ticks": await context.bridge.request("POST", "/v1/ticks/wait", { ticks: number("ticks") }); return;
+    case "wait.until": {
+      const nested = action.assertion;
+      if (!nested || typeof nested !== "object" || Array.isArray(nested) || typeof nested.type !== "string") {
+        throw new HarnessError("INVALID_ACTION", "wait.until.assertion must be an assertion object");
+      }
+      const attempts = await waitUntilAssertion(
+        async () => await executeAssertion(context, nested as HarnessAssertion, evidence),
+        number("timeoutMs", 10_000),
+        number("intervalMs", 100),
+      );
+      evidence["wait.until"] = { attempts, assertion: nested.type };
+      return;
+    }
     case "wait.event": {
       const target = client();
       const type = string("event");
@@ -426,6 +450,11 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       const content = typeof action.content === "string" ? action.content : JSON.stringify(action.content, null, 2) + "\n";
       await writeFile(target, content, "utf8");
       evidence[`file:${relative(context.runDirectory, target)}`] = target;
+      return;
+    }
+    case "file.delete": {
+      const target = await deleteConfinedFile(context.runDirectory, string("path"));
+      evidence[`deleted:${relative(context.runDirectory, target)}`] = true;
       return;
     }
     case "snapshot.capture": {
@@ -452,6 +481,14 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       }
       return;
     }
+    case "value.extract": {
+      const sourceName = string("value");
+      const outputName = string("as");
+      const extracted = extractValue(context.values[sourceName], string("jsonPath", "$"));
+      context.values[outputName] = extracted;
+      evidence[`value.extract:${outputName}`] = extracted;
+      return;
+    }
     case "soak.run": {
       const durationMs = number("durationSeconds", 60) * 1000;
       const intervalMs = number("intervalMs", 1000);
@@ -471,8 +508,15 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
       if (Array.isArray(action.actions)) {
         for (const nested of action.actions) await executeAction(context, nested as HarnessAction, evidence);
       } else {
-        const result = await context.bridge.request("POST", `/v1/adapters/${encodeURIComponent(string("adapter"))}/${encodeURIComponent(string("operation"))}`, action.args ?? {});
-        if (typeof action.as === "string") context.values[action.as] = result;
+        try {
+          const result = await context.bridge.request("POST", `/v1/adapters/${encodeURIComponent(string("adapter"))}/${encodeURIComponent(string("operation"))}`, action.args ?? {});
+          if (typeof action.as === "string") context.values[action.as] = result;
+        } catch (error) {
+          if (action.allowFailure !== true) throw error;
+          const failure = errorMessage(error);
+          if (typeof action.as === "string") context.values[action.as] = failure;
+          evidence[`adapter:${string("adapter")}:${string("operation")}:failure`] = failure;
+        }
       }
       return;
     }
@@ -623,6 +667,59 @@ async function executeAction(context: RunnerContext, action: HarnessAction, evid
   }
 }
 
+export async function deleteConfinedFile(root: string, configuredPath: string): Promise<string> {
+  const target = confinedPath(root, configuredPath);
+  const canonicalRoot = await realpath(root);
+  const canonicalTarget = await realpath(target);
+  const canonicalRelation = relative(canonicalRoot, canonicalTarget);
+  if (canonicalRelation === ".." || canonicalRelation.startsWith(`..${sep}`) || isAbsolute(canonicalRelation)) {
+    throw new HarnessError("PATH_ESCAPE", `Path escapes run directory through a symbolic link: ${configuredPath}`);
+  }
+  await rm(target);
+  return target;
+}
+
+export async function waitUntilAssertion(
+  assertion: () => Promise<void>,
+  timeoutMs = 10_000,
+  intervalMs = 100,
+): Promise<number> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new HarnessError("INVALID_ACTION", "wait.until.timeoutMs must be a non-negative number");
+  }
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    throw new HarnessError("INVALID_ACTION", "wait.until.intervalMs must be a positive number");
+  }
+  const started = Date.now();
+  let attempts = 0;
+  while (true) {
+    attempts++;
+    try {
+      await assertion();
+      return attempts;
+    } catch (error) {
+      if (!(error instanceof HarnessError)
+        || (error.code !== "ASSERTION_FAILED" && !error.code.endsWith("_ASSERTION_FAILED"))) throw error;
+      if (Date.now() - started >= timeoutMs) {
+        throw new HarnessError(
+          "WAIT_UNTIL_TIMEOUT",
+          `wait.until timed out after ${timeoutMs}ms; last observed assertion failure: ${error.message}`,
+          { attempts, lastFailure: error.message },
+        );
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, intervalMs));
+    }
+  }
+}
+
+export function extractValue(value: JsonValue | undefined, path: string): JsonValue {
+  const extracted = getJsonPath(value ?? null, path);
+  if (extracted === undefined) {
+    throw new HarnessError("VALUE_PATH_MISSING", `value.extract path ${path} is missing`);
+  }
+  return extracted;
+}
+
 async function executeAssertion(context: RunnerContext, assertion: HarnessAssertion, evidence: Record<string, JsonValue>): Promise<void> {
   const string = (name: string, fallback?: string) => {
     const value = assertion[name];
@@ -709,6 +806,17 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
       evidence.metrics = metrics;
       return;
     }
+    case "performance.threshold": {
+      if (context.tickSamples.length === 0) {
+        throw new HarnessError("PERFORMANCE_SAMPLES_MISSING", "performance.threshold requires soak.run samples");
+      }
+      const summary = samplePerformance(context.tickSamples);
+      const path = string("path");
+      const actual = getJsonPath(summary, path);
+      assertComparison(actual, assertion.operator ?? "lte", assertion.expected, `performance ${path}`);
+      evidence.performance = summary;
+      return;
+    }
     case "file.exists": {
       const target = assertion.scope === "repository"
         ? confinedPath(repositoryRoot(), string("path"))
@@ -760,7 +868,20 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
   }
 }
 
-function assertComparison(actual: unknown, operator: JsonValue, expected: unknown, label: string): void {
+export function samplePerformance(values: number[]): { mspt: { p50: number; p95: number; p99: number; max: number } } {
+  if (values.length === 0) throw new HarnessError("PERFORMANCE_SAMPLES_MISSING", "performance samples are empty");
+  return {
+    mspt: {
+      p50: percentile(values, 0.5),
+      p95: percentile(values, 0.95),
+      p99: percentile(values, 0.99),
+      max: Math.max(...values),
+    },
+  };
+}
+
+export function assertComparison(actual: unknown, operator: JsonValue, expected: unknown, label: string): void {
+  const encodedActual = JSON.stringify(actual) ?? String(actual);
   let passed = false;
   switch (operator) {
     case "equals": passed = isDeepStrictEqual(actual, expected); break;
@@ -770,13 +891,13 @@ function assertComparison(actual: unknown, operator: JsonValue, expected: unknow
       : Array.isArray(actual)
         ? actual.some((item) => isDeepStrictEqual(item, expected))
           || JSON.stringify(actual).includes(String(expected))
-        : JSON.stringify(actual).includes(String(expected)); break;
+        : encodedActual.includes(String(expected)); break;
     case "not_contains": passed = typeof actual === "string"
       ? !actual.includes(String(expected))
       : Array.isArray(actual)
         ? !actual.some((item) => isDeepStrictEqual(item, expected))
           && !JSON.stringify(actual).includes(String(expected))
-        : !JSON.stringify(actual).includes(String(expected)); break;
+        : !encodedActual.includes(String(expected)); break;
     case "matches": passed = new RegExp(String(expected)).test(String(actual)); break;
     case "gte": passed = Number(actual) >= Number(expected); break;
     case "gt": passed = Number(actual) > Number(expected); break;

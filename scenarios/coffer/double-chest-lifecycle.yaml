@@ -1,0 +1,146 @@
+schemaVersion: 1
+id: coffer/double-chest-lifecycle
+title: Coffer double-chest lifecycle and pair synchronization
+description: Places double chests with a real owner client and inspects both halves after mutation and restart.
+issues: [20]
+tags: [coffer, double-chest, real-client, restart]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+clients:
+  - { name: owner, username: PairOwner, gameMode: creative }
+  - { name: trusted, username: PairTrusted }
+  - { name: foreign, username: PairForeign, gameMode: creative }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+steps:
+  - id: place
+    name: Place and auto-bind a double chest through the real client protocol
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 16 16" }
+      - { type: console.command, command: "tp PairOwner 0.5 64 0.5 0 0" }
+      - { type: console.command, command: "tp PairForeign 0.5 64 0.5 0 0" }
+      - { type: wait.ticks, ticks: 5 }
+      - { type: console.command, command: "fill -5 63 0 5 63 8 minecraft:stone" }
+      - { type: console.command, command: "fill -5 64 0 5 66 8 minecraft:air" }
+      - { type: console.command, command: "give PairOwner minecraft:chest 16" }
+      - { type: console.command, command: "give PairForeign minecraft:chest 8" }
+      - { type: client.select_hotbar, client: owner, slot: 0 }
+      - { type: client.place_block, client: owner, x: 0, y: 63, z: 3 }
+      - { type: client.place_block, client: owner, x: 1, y: 63, z: 3 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 0, y: 64, z: 3 }, as: placed-pair }
+      - { type: snapshot.capture, name: placed-pair, value: placed-pair }
+      - { type: client.place_block, client: owner, x: 1, y: 63, z: 5 }
+      - { type: client.place_block, client: owner, x: 0, y: 63, z: 5 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 1, y: 64, z: 5 }, as: reverse-pair }
+      - { type: snapshot.capture, name: reverse-pair, value: reverse-pair }
+    assertions:
+      - { type: value.json, value: placed-pair, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: placed-pair, jsonPath: pair.1.bound, expected: true }
+      - { type: value.json, value: placed-pair, jsonPath: pair.0.lock.owner, operator: exists }
+      - { type: value.json, value: placed-pair, jsonPath: pair.1.lock.owner, operator: exists }
+      - { type: value.json, value: reverse-pair, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: reverse-pair, jsonPath: pair.1.bound, expected: true }
+
+  - id: merge_rules
+    name: Unbound partners merge, foreign partners refuse, and survival items are conserved
+    actions:
+      - { type: console.command, command: "setblock -2 64 1 minecraft:chest[facing=north]" }
+      - { type: client.place_block, client: owner, x: -1, y: 63, z: 1 }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: -2, y: 64, z: 1 }, as: unbound-merge }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: -1, y: 64, z: 1 }, as: unbound-placed }
+      - { type: snapshot.capture, name: unbound-merge, value: unbound-merge }
+      - { type: snapshot.capture, name: unbound-placed, value: unbound-placed }
+      - { type: client.place_block, client: owner, x: 2, y: 63, z: 1 }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 2, y: 64, z: 1, type: private, ownerPlayer: PairForeign }, as: foreign-partner }
+      - { type: console.command, command: "gamemode survival PairOwner" }
+      - { type: console.command, command: "item replace entity PairOwner hotbar.0 with minecraft:chest 1" }
+      - { type: client.select_hotbar, client: owner, slot: 0 }
+      - { type: client.place_block, client: owner, x: 1, y: 63, z: 1, expectChange: false }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 1, y: 64, z: 1 }, as: refused-placement }
+      - { type: console.command, command: "gamemode creative PairOwner" }
+      - { type: wait.ticks, ticks: 2 }
+    assertions:
+      - { type: value.json, value: unbound-merge, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: unbound-merge, jsonPath: pair.1.bound, expected: true }
+      - { type: value.json, value: foreign-partner, jsonPath: lock.owner, operator: exists }
+      - { type: value.json, value: refused-placement, jsonPath: pair.0.bound, expected: false }
+      - { type: bridge.json, path: "/v1/player/state?name=PairOwner", jsonPath: inventory.0.item, expected: "minecraft:chest" }
+      - { type: bridge.json, path: "/v1/player/state?name=PairOwner", jsonPath: inventory.0.count, expected: 1 }
+
+  - id: mutate
+    name: Mutating through one half synchronizes both halves
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 1, y: 64, z: 3 }, as: before-mutate }
+      - { type: snapshot.capture, name: before-mutate, value: before-mutate }
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { x: 1, y: 64, z: 3, players: [PairTrusted] }, as: trusted-pair }
+      - { type: snapshot.capture, name: trusted-pair, value: trusted-pair }
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { x: 0, y: 64, z: 3, ownershipMode: premises, accessScopes: [structure_residents] }, as: policy-pair }
+    assertions:
+      - { type: value.json, value: before-mutate, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: before-mutate, jsonPath: pair.1.bound, expected: true }
+      - { type: value.json, value: trusted-pair, jsonPath: updated, expected: true }
+      - { type: value.json, value: trusted-pair, jsonPath: pair.0.lock.trusted.0, operator: exists }
+      - { type: value.json, value: trusted-pair, jsonPath: pair.1.lock.trusted.0, operator: exists }
+      - { type: value.json, value: policy-pair, jsonPath: pair.0.lock.ownershipMode, expected: premises }
+      - { type: value.json, value: policy-pair, jsonPath: pair.1.lock.ownershipMode, expected: premises }
+
+  - id: transfer_split_reform
+    name: Transfer clears local trust on both halves, then split and reform remain consistent
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 1, y: 64, z: 3, type: private, ownerPlayer: PairForeign }, as: transferred-pair }
+      - { type: console.command, command: "setblock 1 64 3 minecraft:air" }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect, args: { x: 0, y: 64, z: 3 }, as: split-survivor }
+      - { type: client.select_hotbar, client: foreign, slot: 0 }
+      - { type: client.place_block, client: foreign, x: 1, y: 63, z: 3 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 0, y: 64, z: 3 }, as: reformed-pair }
+      - { type: adapter.invoke, adapter: coffer, operation: clear, args: { x: 1, y: 64, z: 3 }, as: cleared-pair }
+    assertions:
+      - { type: value.json, value: transferred-pair, jsonPath: pair.0.lock.trusted.0, operator: absent }
+      - { type: value.json, value: transferred-pair, jsonPath: pair.1.lock.trusted.0, operator: absent }
+      - { type: value.json, value: split-survivor, jsonPath: owner, operator: exists }
+      - { type: value.json, value: reformed-pair, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: reformed-pair, jsonPath: pair.1.bound, expected: true }
+      - { type: value.json, value: cleared-pair, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: cleared-pair, jsonPath: pair.1.bound, expected: false }
+
+  - id: variants
+    name: Trapped and copper chest pairs retain synchronized lock state
+    actions:
+      - { type: console.command, command: "setblock -2 64 7 minecraft:trapped_chest[facing=north,type=left]" }
+      - { type: console.command, command: "setblock -1 64 7 minecraft:trapped_chest[facing=north,type=right]" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: -2, y: 64, z: 7, type: private, ownerPlayer: PairOwner }, as: trapped-pair }
+      - { type: console.command, command: "setblock 1 64 7 minecraft:copper_chest[facing=north,type=left]" }
+      - { type: console.command, command: "setblock 2 64 7 minecraft:copper_chest[facing=north,type=right]" }
+      - { type: wait.ticks, ticks: 2 }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 1, y: 64, z: 7, type: public, ownerPlayer: PairOwner }, as: copper-pair }
+      - { type: snapshot.capture, name: copper-pair, value: copper-pair }
+    assertions:
+      - { type: value.json, value: trapped-pair, jsonPath: pair.0.bound, expected: true }
+      - { type: value.json, value: trapped-pair, jsonPath: pair.1.bound, expected: true }
+      - { type: value.json, value: copper-pair, jsonPath: pair.0.lock.type, expected: public }
+      - { type: value.json, value: copper-pair, jsonPath: pair.1.lock.type, expected: public }
+
+  - id: restart
+    name: Both halves retain equal policy after restart
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 0, y: 64, z: 3 }, as: restarted-pair }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 1, y: 64, z: 7 }, as: restarted-copper-pair }
+    assertions:
+      - { type: value.json, value: restarted-pair, jsonPath: pair.0.bound, expected: false }
+      - { type: value.json, value: restarted-pair, jsonPath: pair.1.bound, expected: false }
+      - { type: value.json, value: restarted-copper-pair, jsonPath: pair.0.lock.type, expected: public }
+      - { type: value.json, value: restarted-copper-pair, jsonPath: pair.1.lock.type, expected: public }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions: [{ type: server.stop }]

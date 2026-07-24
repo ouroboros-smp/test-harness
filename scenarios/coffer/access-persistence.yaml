@@ -1,0 +1,123 @@
+schemaVersion: 1
+id: coffer/access-persistence
+title: Coffer access modes, trust, keys, and restart persistence
+description: Exercises packaged Coffer with an owner, a trusted player, and a distinct outsider through real client sessions.
+issues: [18, 19, 32, 33, 36]
+tags: [coffer, access, multi-client, restart]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+clients:
+  - { name: owner, username: AccessOwner, gameMode: creative }
+  - { name: trusted, username: AccessTrusted }
+  - { name: outsider, username: AccessOutsider }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+steps:
+  - id: setup
+    name: Start three clients and bind a deterministic private container
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 32 32" }
+      - { type: console.command, command: "fill -4 63 -4 4 63 4 minecraft:stone" }
+      - { type: console.command, command: "setblock 0 64 0 minecraft:chest" }
+      - { type: console.command, command: "tp AccessOwner 0 64 2" }
+      - { type: console.command, command: "tp AccessTrusted 1 64 2" }
+      - { type: console.command, command: "tp AccessOutsider -1 64 2" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: "minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 64, z: 0, type: private, ownerPlayer: AccessOwner }, as: private-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessOutsider }, as: private-outsider }
+      - { type: client.use_block, client: outsider, x: 0, y: 64, z: 0 }
+    assertions:
+      - { type: value.json, value: private-bind, jsonPath: updated, expected: true }
+      - { type: value.json, value: private-outsider, jsonPath: allowed, expected: false }
+      - { type: client.event, client: outsider, event: window_open, operator: equals, count: 0 }
+      - { type: client.event, client: outsider, event: message, pattern: "belongs to|locked|denied" }
+
+  - id: trust_and_public
+    name: Local trust and public mode change real access without conflating the outsider
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { x: 0, y: 64, z: 0, players: [AccessTrusted] }, as: trusted-update }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessTrusted }, as: trusted-access }
+      - { type: client.use_block, client: trusted, x: 0, y: 64, z: 0 }
+      - { type: client.click_window, client: trusted, slot: 0, button: 0, mode: 0 }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 64, z: 0, type: public, ownerPlayer: AccessOwner }, as: public-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessOutsider }, as: public-outsider }
+    assertions:
+      - { type: value.json, value: trusted-update, jsonPath: lock.trusted.0, operator: exists }
+      - { type: value.json, value: trusted-access, jsonPath: allowed, expected: true }
+      - { type: client.event, client: trusted, event: window_open, operator: gte, count: 1 }
+      - { type: value.json, value: public-bind, jsonPath: lock.type, expected: public }
+      - { type: value.json, value: public-outsider, jsonPath: allowed, expected: true }
+
+  - id: global_and_management
+    name: Global trust grants access but never management, and cleared containers are public
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 64, z: 0, type: private, ownerPlayer: AccessOwner }, as: private-rebind }
+      - { type: client.command, client: owner, command: "coffer trust AccessOutsider global" }
+      - type: wait.until
+        assertion: { type: client.event, client: owner, event: message, pattern: "Globally trusted AccessOutsider" }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessOutsider }, as: globally-trusted-access }
+      - { type: client.use_block, client: outsider, x: 0, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: client.event, client: outsider, event: window_open, operator: gte, count: 1 }
+      - { type: client.disconnect, client: outsider }
+      - { type: client.reconnect, client: outsider }
+      - { type: client.command, client: outsider, command: "coffer lock public" }
+      - { type: client.break_block, client: outsider, x: 0, y: 64, z: 0 }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect, args: { x: 0, y: 64, z: 0 }, as: after-outsider-management }
+      - { type: adapter.invoke, adapter: coffer, operation: clear, args: { x: 0, y: 64, z: 0 }, as: cleared }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessOutsider }, as: unbound-access }
+      - { type: client.use_block, client: outsider, x: 0, y: 64, z: 0 }
+      - { type: client.command, client: owner, command: "coffer untrust AccessOutsider global" }
+      - type: wait.until
+        assertion: { type: client.event, client: owner, event: message, pattern: "Removed global trust for AccessOutsider" }
+    assertions:
+      - { type: value.json, value: private-rebind, jsonPath: lock.type, expected: private }
+      - { type: value.json, value: globally-trusted-access, jsonPath: allowed, expected: true }
+      - { type: client.event, client: outsider, event: message, pattern: "Only the owner|cannot manage|belongs to" }
+      - { type: value.json, value: after-outsider-management, jsonPath: type, expected: private }
+      - { type: value.json, value: cleared, jsonPath: updated, expected: true }
+      - { type: value.json, value: unbound-access, jsonPath: allowed, expected: true }
+      - { type: client.event, client: outsider, event: window_open, operator: gte, count: 2 }
+
+  - id: key_and_policy
+    name: Matching key components and independent civilization scopes are persisted
+    actions:
+      - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: AccessOwner, slot: 0, item: "minecraft:tripwire_hook", count: 1 } }
+      - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: AccessTrusted, slot: 0, item: "minecraft:tripwire_hook", count: 1 } }
+      - { type: bridge.request, method: PUT, path: /v1/player/inventory, body: { player: AccessOutsider, slot: 0, item: "minecraft:dirt", count: 1 } }
+      - { type: client.select_hotbar, client: owner, slot: 0 }
+      - { type: client.select_hotbar, client: trusted, slot: 0 }
+      - { type: client.select_hotbar, client: outsider, slot: 0 }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 64, z: 0, type: key, ownerPlayer: AccessOwner, keyFromPlayer: AccessOwner }, as: key-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessTrusted }, as: matching-key }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessOutsider }, as: wrong-key }
+      - { type: adapter.invoke, adapter: coffer, operation: set-policy, args: { x: 0, y: 64, z: 0, ownershipMode: premises, accessScopes: [structure_residents, kinship_members] }, as: premises-policy }
+    assertions:
+      - { type: value.json, value: key-bind, jsonPath: lock.key.id, expected: "minecraft:tripwire_hook" }
+      - { type: value.json, value: matching-key, jsonPath: allowed, expected: true }
+      - { type: value.json, value: wrong-key, jsonPath: allowed, expected: false }
+      - { type: value.json, value: premises-policy, jsonPath: lock.ownershipMode, expected: premises }
+      - { type: value.json, value: premises-policy, jsonPath: lock.accessScopes, operator: contains, expected: kinship_members }
+
+  - id: restart
+    name: Restart preserves the lock and actual matching-key access
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { x: 0, y: 64, z: 0 }, as: restarted-registry }
+      - { type: adapter.invoke, adapter: coffer, operation: can-open, args: { x: 0, y: 64, z: 0, player: AccessTrusted }, as: restarted-access }
+      - { type: client.use_block, client: trusted, x: 0, y: 64, z: 0 }
+    assertions:
+      - { type: value.json, value: restarted-registry, jsonPath: bound, expected: true }
+      - { type: value.json, value: restarted-registry, jsonPath: aggregateId, operator: exists }
+      - { type: value.json, value: restarted-registry, jsonPath: revision, operator: gte, expected: 1 }
+      - { type: value.json, value: restarted-access, jsonPath: allowed, expected: true }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions: [{ type: server.stop }]

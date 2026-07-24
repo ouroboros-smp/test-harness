@@ -35,8 +35,8 @@ test("portfolio catalog builds only maintained Fabric modules and orders the Cof
   const coffer = manifest.targets.find((target) => target.id === "coffer")!;
   assert.equal(coffer.build.length, 2);
   assert.equal(coffer.build[1]?.base, "harness");
-  assert.ok(coffer.build[1]?.command.some((part) => part.includes("coffer-fabric-server-1.3.0.jar")));
-  assert.ok(coffer.build[1]?.command.some((part) => part.includes("core-1.3.0.jar")));
+  assert.ok(coffer.build[1]?.command.some((part) => part.includes("coffer-fabric-server-0.1.5.jar")));
+  assert.ok(coffer.build[1]?.command.some((part) => part.includes("core-0.1.5.jar")));
   assert.equal(coffer.build[1]?.command.at(-1), ":adapters:coffer:build");
 });
 

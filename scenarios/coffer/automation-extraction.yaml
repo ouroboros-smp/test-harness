@@ -1,0 +1,205 @@
+schemaVersion: 1
+id: coffer/automation-extraction
+title: Coffer packaged automation extraction and deposit behavior
+description: Uses real vanilla hoppers against a packaged Coffer jar and records bounded timing evidence.
+issues: [21]
+tags: [coffer, automation, hopper, performance]
+artifacts:
+  consumer: { required: true, description: Packaged Coffer server jar }
+  coffer_adapter: { required: true, description: Harness-only Coffer adapter }
+clients:
+  - { name: owner, username: AutoOwner, gameMode: creative }
+  - { name: local, username: AutoLocal }
+  - { name: global, username: AutoGlobal }
+  - { name: foreign, username: AutoForeign }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+steps:
+  - id: setup
+    name: Build deterministic extraction and deposit fixtures
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "forceload add -16 -16 32 32" }
+      - { type: console.command, command: "setblock 0 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 0 64 10 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "setblock 0 63 10 minecraft:chest" }
+      - { type: console.command, command: "item replace block 0 65 10 container.0 with minecraft:diamond 4" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 65, z: 10, type: private, ownerPlayer: AutoOwner }, as: extraction-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 0, y: 64, z: 10, type: private, ownerPlayer: AutoOwner }, as: owner-hopper-bind }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 0, y: 65, z: 10, flag: hoppers, value: false }, as: extraction-disabled }
+      - { type: wait.ticks, ticks: 16 }
+    assertions:
+      - { type: value.json, value: extraction-disabled, jsonPath: lock.flagOverrides.hoppers, expected: false }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=0&y=64&z=10", jsonPath: snbt, operator: not_contains, expected: "minecraft:diamond" }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=0&y=65&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:diamond" }
+
+  - id: enable
+    name: Enabling hopper extraction moves items without polling sleeps
+    actions:
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 0, y: 65, z: 10, flag: hoppers, value: true }, as: extraction-enabled }
+      - type: wait.until
+        timeoutMs: 10000
+        intervalMs: 100
+        assertion: { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=0&y=63&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:diamond" }
+    assertions:
+      - { type: value.json, value: extraction-enabled, jsonPath: lock.flagOverrides.hoppers, expected: true }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=0&y=63&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:diamond" }
+
+  - id: deposits
+    name: Deposits remain vanilla while extraction is disabled
+    actions:
+      - { type: console.command, command: "setblock 3 64 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 3 65 10 minecraft:hopper[facing=down]" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 3, y: 64, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 3, y: 64, z: 10, flag: hoppers, value: false } }
+      - { type: console.command, command: "item replace block 3 65 10 container.0 with minecraft:gold_ingot 3" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=3&y=64&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:gold_ingot" }
+    assertions:
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=3&y=64&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:gold_ingot" }
+
+  - id: ownership_matrix
+    name: Local trust, global trust, foreign ownership, and unowned hoppers follow the access matrix
+    actions:
+      - { type: console.command, command: "setblock 6 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 6 64 10 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "setblock 6 63 10 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 6, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: set-trusted, args: { x: 6, y: 65, z: 10, players: [AutoLocal] } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 6, y: 64, z: 10, type: private, ownerPlayer: AutoLocal } }
+      - { type: console.command, command: "item replace block 6 65 10 container.0 with minecraft:diamond 1" }
+      - { type: console.command, command: "setblock 9 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 9 64 10 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "setblock 9 63 10 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 9, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 9, y: 64, z: 10, type: private, ownerPlayer: AutoGlobal } }
+      - { type: client.command, client: owner, command: "coffer trust AutoGlobal global" }
+      - type: wait.until
+        assertion: { type: client.event, client: owner, event: message, pattern: "Globally trusted AutoGlobal" }
+      - { type: console.command, command: "item replace block 9 65 10 container.0 with minecraft:emerald 1" }
+      - { type: console.command, command: "setblock 12 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 12 64 10 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "setblock 12 63 10 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 12, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 12, y: 64, z: 10, type: private, ownerPlayer: AutoForeign } }
+      - { type: console.command, command: "item replace block 12 65 10 container.0 with minecraft:gold_ingot 1" }
+      - { type: console.command, command: "setblock 15 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 15 64 10 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "setblock 15 63 10 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 15, y: 65, z: 10, type: private, ownerPlayer: AutoOwner }, as: unowned-source }
+      - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { x: 15, y: 64, z: 10 }, as: unowned-hopper }
+      - { type: console.command, command: "item replace block 15 65 10 container.0 with minecraft:iron_ingot 1" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=6&y=63&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:diamond" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=9&y=63&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:emerald" }
+      - { type: wait.ticks, ticks: 16 }
+    assertions:
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=12&y=65&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:gold_ingot" }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=12&y=64&z=10", jsonPath: snbt, operator: not_contains, expected: "minecraft:gold_ingot" }
+      - { type: value.json, value: unowned-source, jsonPath: lock.type, expected: private }
+      - { type: value.json, value: unowned-hopper, jsonPath: pair.0.bound, expected: false }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=15&y=65&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:iron_ingot" }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=15&y=64&z=10", jsonPath: snbt, operator: not_contains, expected: "minecraft:iron_ingot" }
+
+  - id: hopper_minecart
+    name: Hopper minecarts extract from unbound sources but not protected sources
+    actions:
+      - { type: console.command, command: "setblock 18 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 18 64 10 minecraft:rail" }
+      - { type: console.command, command: "item replace block 18 65 10 container.0 with minecraft:lapis_lazuli 1" }
+      - { type: console.command, command: "summon minecraft:hopper_minecart 18.5 64.1 10.5" }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/entities?type=minecraft:hopper_minecart", jsonPath: "0.inventory.0.item", expected: "minecraft:lapis_lazuli" }
+      - { type: console.command, command: "kill @e[type=minecraft:hopper_minecart]" }
+      - { type: console.command, command: "setblock 21 65 10 minecraft:chest" }
+      - { type: console.command, command: "setblock 21 64 10 minecraft:rail" }
+      - { type: console.command, command: "item replace block 21 65 10 container.0 with minecraft:redstone 1" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 21, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: console.command, command: "summon minecraft:hopper_minecart 21.5 64.1 10.5" }
+      - { type: wait.ticks, ticks: 20 }
+    assertions:
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=21&y=65&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:redstone" }
+      - { type: bridge.json, path: "/v1/entities?type=minecraft:hopper_minecart", jsonPath: "0.inventory.0", operator: absent }
+
+  - id: copper_golem
+    name: A real copper golem honors selector reset, explicit enable, explicit disable, and defaults
+    timeoutSeconds: 120
+    actions:
+      - { type: console.command, command: "fill 23 63 9 31 63 11 minecraft:stone" }
+      - { type: console.command, command: "fill 23 64 9 31 68 11 minecraft:air" }
+      - { type: console.command, command: "setblock 24 64 10 minecraft:copper_chest" }
+      - { type: console.command, command: "setblock 26 64 10 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 24, y: 64, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - type: file.write
+        path: config/coffer.json
+        content: '{"auto_locking_containers":{"minecraft:chest":"private","#minecraft:copper_chests":"private","minecraft:hopper":"private"},"guards":{"hoppers":true},"default_flags":{"default":{"hoppers":true,"copper_golems":true},"overrides":{"#minecraft:copper_chests":{"copper_golems":false}}},"max_trusted_per_container":16,"admin_bypass":true}'
+      - { type: console.command, command: "coffer reload" }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 24, y: 64, z: 10, flag: copper_golems, value: null }, as: selector-reset }
+      - { type: console.command, command: "item replace block 24 64 10 container.0 with minecraft:amethyst_shard 1" }
+      - { type: console.command, command: "summon minecraft:copper_golem 25 64 10" }
+      - { type: wait.ticks, ticks: 120 }
+      - { type: bridge.request, method: GET, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=24&y=64&z=10", as: selector-blocked }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 24, y: 64, z: 10, flag: copper_golems, value: true }, as: golem-enabled }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=26&y=64&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:amethyst_shard" }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 24, y: 64, z: 10, flag: copper_golems, value: false }, as: golem-disabled }
+      - { type: console.command, command: "item replace block 24 64 10 container.0 with minecraft:quartz 1" }
+      - { type: wait.ticks, ticks: 120 }
+      - { type: bridge.request, method: GET, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=24&y=64&z=10", as: explicit-blocked }
+      - type: file.write
+        path: config/coffer.json
+        content: '{"auto_locking_containers":{"minecraft:chest":"private","#minecraft:copper_chests":"private","minecraft:hopper":"private"},"guards":{"hoppers":true},"default_flags":{"default":{"hoppers":true,"copper_golems":true},"overrides":{}},"max_trusted_per_container":16,"admin_bypass":true}'
+      - { type: console.command, command: "coffer reload" }
+      - { type: console.command, command: "setblock 28 64 10 minecraft:copper_chest" }
+      - { type: console.command, command: "setblock 30 64 10 minecraft:chest" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 28, y: 64, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { x: 28, y: 64, z: 10, flag: copper_golems, value: null }, as: default-reset }
+      - { type: console.command, command: "item replace block 28 64 10 container.0 with minecraft:quartz 1" }
+      - { type: console.command, command: "kill @e[type=minecraft:copper_golem]" }
+      - { type: console.command, command: "summon minecraft:copper_golem 29 64 10" }
+      - type: wait.until
+        timeoutMs: 60000
+        intervalMs: 250
+        assertion: { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=30&y=64&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:quartz" }
+    assertions:
+      - { type: value.json, value: selector-reset, jsonPath: lock.flagOverrides.copper_golems, operator: absent }
+      - { type: value.json, value: selector-blocked, jsonPath: snbt, operator: contains, expected: "minecraft:amethyst_shard" }
+      - { type: value.json, value: golem-enabled, jsonPath: lock.flagOverrides.copper_golems, expected: true }
+      - { type: value.json, value: golem-disabled, jsonPath: lock.flagOverrides.copper_golems, expected: false }
+      - { type: value.json, value: explicit-blocked, jsonPath: snbt, operator: contains, expected: "minecraft:quartz" }
+      - { type: value.json, value: default-reset, jsonPath: lock.flagOverrides.copper_golems, operator: absent }
+
+  - id: bounded
+    name: Record bounded dense-automation timing and logs
+    actions:
+      - { type: console.command, command: "fill 30 63 10 45 63 10 minecraft:chest" }
+      - { type: console.command, command: "fill 30 64 10 45 64 10 minecraft:hopper[facing=down]" }
+      - { type: console.command, command: "fill 30 65 10 45 65 10 minecraft:chest" }
+      - { type: console.command, command: "fill 30 65 10 45 65 10 minecraft:chest{Items:[{Slot:0b,id:\"minecraft:cobblestone\",count:64}]} replace" }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 30, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 30, y: 64, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 31, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 31, y: 64, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 32, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 32, y: 64, z: 10, type: private, ownerPlayer: AutoForeign } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 33, y: 65, z: 10, type: private, ownerPlayer: AutoOwner } }
+      - { type: adapter.invoke, adapter: coffer, operation: bind, args: { x: 33, y: 64, z: 10, type: private, ownerPlayer: AutoForeign } }
+      - type: soak.run
+        durationSeconds: 5
+        intervalMs: 250
+        behavior:
+          - { type: wait.ticks, ticks: 1 }
+    assertions:
+      - { type: performance.threshold, path: mspt.p95, operator: lte, expected: 50 }
+      - { type: log.rate, pattern: "Coffer.*(?:hopper|automation).*(?:denied|blocked)", maxPerMinute: 120, windowSeconds: 5 }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=30&y=63&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:cobblestone" }
+      - { type: bridge.json, path: "/v1/block-entity?dimension=minecraft%3Aoverworld&x=32&y=65&z=10", jsonPath: snbt, operator: contains, expected: "minecraft:cobblestone" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions: [{ type: server.stop }]
