@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     steps:
@@ -44,6 +45,7 @@ jobs:
       - run: node dist/cli.js doctor
 
   live-smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: verify
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 30
