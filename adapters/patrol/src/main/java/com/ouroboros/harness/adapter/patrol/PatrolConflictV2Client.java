@@ -8,6 +8,7 @@ import com.google.gson.JsonPrimitive;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -15,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -32,8 +32,13 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private static final int EVENT_SCHEMA_VERSION = 1;
     private static final int MAX_REPLAY_EVENTS = 2_048;
     private static final int MAX_LIVE_EVENTS = 2_048;
+    private static final int MAX_LIVE_ERRORS = 64;
     private static final int MAX_JSON_COLLECTION = 4_096;
     private static final int MAX_JSON_DEPTH = 16;
+    private static final int MAX_JSON_NODES = 16_384;
+    private static final int MAX_JSON_STRING = 16_384;
+    private static final int MAX_JSON_KEY = 1_024;
+    private static final int MAX_JSON_NUMBER = 128;
     private static final Set<String> STATES = Set.of("clear", "wanted", "cooling");
     private static final Set<String> ACTIONS = Set.of(
             "hostile", "wanted", "cooling", "cleared", "pardoned",
@@ -42,8 +47,9 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             Set.of("aggressor", "subject", "administrator", "system");
 
     private final Supplier<Object> providerSupplier;
-    private final CopyOnWriteArrayList<JsonObject> liveEvents = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<String> liveErrors = new CopyOnWriteArrayList<>();
+    private final Object evidenceLock = new Object();
+    private final ArrayDeque<JsonObject> liveEvents = new ArrayDeque<>();
+    private final ArrayDeque<String> liveErrors = new ArrayDeque<>();
     private Object subscribedProtocol;
     private AutoCloseable subscription;
     private long truncatedLiveEvents;
@@ -155,20 +161,26 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         JsonObject result = metadata();
         result.addProperty("installed", describe().get("installed").getAsBoolean());
         JsonArray events = new JsonArray();
-        liveEvents.forEach(event -> events.add(event.deepCopy()));
         JsonArray errors = new JsonArray();
-        liveErrors.forEach(errors::add);
+        long truncated;
+        synchronized (evidenceLock) {
+            liveEvents.forEach(event -> events.add(event.deepCopy()));
+            liveErrors.forEach(errors::add);
+            truncated = truncatedLiveEvents;
+        }
         result.addProperty("count", events.size());
-        result.addProperty("truncated", truncatedLiveEvents);
+        result.addProperty("truncated", truncated);
         result.add("events", events);
         result.add("errors", errors);
         return result;
     }
 
     public JsonObject clearEvents() {
-        liveEvents.clear();
-        liveErrors.clear();
-        truncatedLiveEvents = 0L;
+        synchronized (evidenceLock) {
+            liveEvents.clear();
+            liveErrors.clear();
+            truncatedLiveEvents = 0L;
+        }
         JsonObject result = events();
         result.addProperty("cleared", true);
         return result;
@@ -285,47 +297,63 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         try {
             validateEvent(event, null);
             JsonObject copy = toJson(event, 0).getAsJsonObject();
-            if (liveEvents.size() >= MAX_LIVE_EVENTS) {
-                liveEvents.remove(0);
-                truncatedLiveEvents++;
+            synchronized (evidenceLock) {
+                if (liveEvents.size() >= MAX_LIVE_EVENTS) {
+                    liveEvents.removeFirst();
+                    truncatedLiveEvents++;
+                }
+                liveEvents.addLast(copy);
             }
-            liveEvents.add(copy);
         } catch (RuntimeException failure) {
-            if (liveErrors.size() >= 64) liveErrors.remove(0);
-            liveErrors.add(message(failure));
+            recordLiveError(message(failure));
         }
     }
 
     private static void validateStatus(Map<String, Object> status, UUID expectedPlayer) {
         boolean available = requiredBoolean(status, "available", "invalid_status");
-        if (!available) return;
-        UUID player = requiredUuid(status, "playerId", "invalid_status");
+        validateStatusIdentity(status, expectedPlayer, "invalid_status");
+        if (!available) {
+            toJson(status, 0);
+            return;
+        }
+        validateStatusSnapshot(status, expectedPlayer, "invalid_status");
+        toJson(status, 0);
+    }
+
+    private static void validateStatusIdentity(
+            Map<String, Object> status, UUID expectedPlayer, String code) {
+        UUID player = requiredUuid(status, "playerId", code);
         if (!player.equals(expectedPlayer)
-                || !requiredString(status, "aggregateId", "invalid_status")
+                || !requiredString(status, "aggregateId", code)
                         .equals(expectedPlayer.toString())
-                || !requiredString(status, "principal", "invalid_status")
+                || !requiredString(status, "principal", code)
                         .equals("player:" + expectedPlayer)) {
-            throw new ContractFailure(true, "invalid_status",
+            throw new ContractFailure(true, code,
                     "status identity does not match the requested player");
         }
-        String state = requiredString(status, "state", "invalid_status");
+    }
+
+    private static void validateStatusSnapshot(
+            Map<String, Object> status, UUID expectedPlayer, String code) {
+        validateStatusIdentity(status, expectedPlayer, code);
+        String state = requiredString(status, "state", code);
         if (!STATES.contains(state)) {
-            throw new ContractFailure(true, "invalid_status", "unknown state " + state);
+            throw new ContractFailure(true, code, "unknown state " + state);
         }
-        boolean wanted = requiredBoolean(status, "wanted", "invalid_status");
-        long tier = nonNegativeLong(status, "tier", "invalid_status");
-        nonNegativeLong(status, "lastHostileAt", "invalid_status");
-        nonNegativeLong(status, "revision", "invalid_status");
-        requiredBoolean(status, "banished", "invalid_status");
+        boolean wanted = requiredBoolean(status, "wanted", code);
+        long tier = nonNegativeLong(status, "tier", code);
+        nonNegativeLong(status, "lastHostileAt", code);
+        nonNegativeLong(status, "revision", code);
+        requiredBoolean(status, "banished", code);
         if (wanted != state.equals("wanted") || state.equals("clear") && tier != 0L) {
-            throw new ContractFailure(true, "invalid_status",
+            throw new ContractFailure(true, code,
                     "status state, wanted, and tier disagree");
         }
         if (status.containsKey("lastCounterparty")) {
-            requiredUuid(status, "lastCounterparty", "invalid_status");
+            requiredUuid(status, "lastCounterparty", code);
         }
-        validateLocation(status, "invalid_status");
-        toJson(status, 0);
+        validateLocation(status, code);
+        validateContext(status, code);
     }
 
     private static EventIdentity validateEvent(
@@ -381,17 +409,21 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                 stringMap(event.get("data"), "event data", "invalid_event");
         Map<String, Object> payload =
                 stringMap(event.get("payload"), "event payload", "invalid_event");
-        if (!data.equals(payload)
+        JsonElement dataJson = toJson(data, 0);
+        JsonElement payloadJson = toJson(payload, 0);
+        if (!dataJson.equals(payloadJson)
                 || !aggregateId.equals(requiredUuid(data, "playerId", "invalid_event"))
                 || aggregateRevision != nonNegativeLong(data, "revision", "invalid_event")) {
             throw new ContractFailure(true, "invalid_event",
                     "event data does not reconcile with its aggregate");
         }
+        validateStatusSnapshot(data, aggregateId, "invalid_event");
         String role = requiredString(data, "participantRole", "invalid_event");
         if (!PARTICIPANT_ROLES.contains(role)) {
             throw new ContractFailure(true, "invalid_event",
                     "event participantRole is invalid");
         }
+        validateCounterparty(data, role);
         Object actorRaw = event.get("actor");
         if (actorRaw == null) {
             if (!"system".equals(role)
@@ -412,10 +444,35 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                 throw new ContractFailure(true, "invalid_event",
                         "player event actor fields are inconsistent");
             }
+            if ("aggressor".equals(role) && !actor.equals(aggregateId)) {
+                throw new ContractFailure(true, "invalid_event",
+                        "aggressor event actor must match the aggregate");
+            }
         }
         validateLocation(event, "invalid_event");
         toJson(event, 0);
         return new EventIdentity(eventId, aggregateId, aggregateRevision);
+    }
+
+    private static void validateCounterparty(Map<String, Object> data, String role) {
+        boolean hasCounterparty = data.get("counterparty") != null;
+        boolean hasPrincipal = data.get("counterpartyPrincipal") != null;
+        if (hasCounterparty != hasPrincipal) {
+            throw new ContractFailure(true, "invalid_event",
+                    "counterparty and counterpartyPrincipal must be present together");
+        }
+        if ("aggressor".equals(role) && !hasCounterparty) {
+            throw new ContractFailure(true, "invalid_event",
+                    "aggressor event must identify its counterparty");
+        }
+        if (hasCounterparty) {
+            UUID counterparty = requiredUuid(data, "counterparty", "invalid_event");
+            if (!("player:" + counterparty).equals(
+                    requiredString(data, "counterpartyPrincipal", "invalid_event"))) {
+                throw new ContractFailure(true, "invalid_event",
+                        "counterparty principal does not match its player");
+            }
+        }
     }
 
     private static void validateLocation(Map<String, Object> value, String code) {
@@ -437,6 +494,30 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         finiteNumber(position, "x", code);
         finiteNumber(position, "y", code);
         finiteNumber(position, "z", code);
+    }
+
+    private static void validateContext(Map<String, Object> value, String code) {
+        if (value.get("context") == null) return;
+        Map<String, Object> context = stringMap(value.get("context"), "context", code);
+        validatePlayerPrincipal(context, "aggressor", code);
+        validatePlayerPrincipal(context, "victim", code);
+        if (context.containsKey("owner")) requiredString(context, "owner", code);
+        if (context.containsKey("structureId")) requiredString(context, "structureId", code);
+        if (context.containsKey("homesteadId")) requiredString(context, "homesteadId", code);
+        requiredBoolean(context, "trespass", code);
+        if (context.containsKey("jurisdiction")) requiredString(context, "jurisdiction", code);
+        if (context.containsKey("kinshipConflictId")) {
+            requiredString(context, "kinshipConflictId", code);
+        }
+    }
+
+    private static void validatePlayerPrincipal(
+            Map<String, Object> value, String name, String code) {
+        String principal = requiredString(value, name, code);
+        if (!principal.startsWith("player:")) {
+            throw new ContractFailure(true, code, name + " must be a player principal");
+        }
+        uuid(principal.substring("player:".length()), name, code);
     }
 
     private static JsonObject metadata() {
@@ -492,9 +573,13 @@ public final class PatrolConflictV2Client implements AutoCloseable {
             throw new ContractFailure(true, code, name + " must be a bounded map");
         }
         Map<String, Object> result = new LinkedHashMap<>();
+        int count = 0;
         for (Map.Entry<?, ?> entry : map.entrySet()) {
             if (!(entry.getKey() instanceof String key)) {
                 throw new ContractFailure(true, code, name + " keys must be strings");
+            }
+            if (++count > MAX_JSON_COLLECTION || key.length() > MAX_JSON_KEY) {
+                throw new ContractFailure(true, code, name + " must be a bounded map");
             }
             result.put(key, entry.getValue());
         }
@@ -504,7 +589,9 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     private static String requiredString(
             Map<String, Object> value, String name, String code) {
         Object raw = value.get(name);
-        if (!(raw instanceof String string) || string.isBlank()) {
+        if (!(raw instanceof String string)
+                || string.isBlank()
+                || string.length() > MAX_JSON_STRING) {
             throw new ContractFailure(true, code, name + " must be a non-blank string");
         }
         return string;
@@ -525,7 +612,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     }
 
     private static UUID uuid(Object raw, String name, String code) {
-        if (!(raw instanceof String string)) {
+        if (!(raw instanceof String string) || string.length() > 64) {
             throw new ContractFailure(true, code, name + " must be a UUID string");
         }
         try {
@@ -555,7 +642,11 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                     name + " must be an exact integer");
         }
         try {
-            return new BigDecimal(number.toString()).longValueExact();
+            String representation = number.toString();
+            if (representation.length() > MAX_JSON_NUMBER) {
+                throw new NumberFormatException("number representation exceeds size bound");
+            }
+            return new BigDecimal(representation).longValueExact();
         } catch (ArithmeticException | NumberFormatException failure) {
             throw new ContractFailure(true, "protocol_shape",
                     name + " must be an exact integer", failure);
@@ -571,14 +662,29 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     }
 
     private static JsonElement toJson(Object raw, int depth) {
+        return toJson(raw, depth, new JsonBudget(MAX_JSON_NODES));
+    }
+
+    private static JsonElement toJson(Object raw, int depth, JsonBudget budget) {
         if (depth > MAX_JSON_DEPTH) {
             throw new ContractFailure(true, "invalid_json", "peer JSON exceeds depth bound");
         }
+        if (!budget.claim()) {
+            throw new ContractFailure(true, "invalid_json", "peer JSON exceeds node bound");
+        }
         if (raw == null) return JsonNull.INSTANCE;
-        if (raw instanceof String string) return new JsonPrimitive(string);
+        if (raw instanceof String string) {
+            if (string.length() > MAX_JSON_STRING) {
+                throw new ContractFailure(true, "invalid_json",
+                        "peer JSON string exceeds size bound");
+            }
+            return new JsonPrimitive(string);
+        }
         if (raw instanceof Boolean bool) return new JsonPrimitive(bool);
         if (raw instanceof Number number) {
-            if (!Double.isFinite(number.doubleValue())) {
+            String representation = number.toString();
+            if (representation.length() > MAX_JSON_NUMBER
+                    || !Double.isFinite(number.doubleValue())) {
                 throw new ContractFailure(true, "invalid_json", "peer JSON number is not finite");
             }
             return new JsonPrimitive(number);
@@ -590,12 +696,17 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                         "peer JSON map exceeds size bound");
             }
             JsonObject result = new JsonObject();
+            int count = 0;
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 if (!(entry.getKey() instanceof String key)) {
                     throw new ContractFailure(true, "invalid_json",
                             "peer JSON map key is not a string");
                 }
-                result.add(key, toJson(entry.getValue(), depth + 1));
+                if (++count > MAX_JSON_COLLECTION || key.length() > MAX_JSON_KEY) {
+                    throw new ContractFailure(true, "invalid_json",
+                            "peer JSON map exceeds size bound");
+                }
+                result.add(key, toJson(entry.getValue(), depth + 1, budget));
             }
             return result;
         }
@@ -605,11 +716,25 @@ public final class PatrolConflictV2Client implements AutoCloseable {
                         "peer JSON list exceeds size bound");
             }
             JsonArray result = new JsonArray();
-            collection.forEach(value -> result.add(toJson(value, depth + 1)));
+            int count = 0;
+            for (Object value : collection) {
+                if (++count > MAX_JSON_COLLECTION) {
+                    throw new ContractFailure(true, "invalid_json",
+                            "peer JSON list exceeds size bound");
+                }
+                result.add(toJson(value, depth + 1, budget));
+            }
             return result;
         }
         throw new ContractFailure(true, "invalid_json",
                 "unsupported peer JSON value " + raw.getClass().getName());
+    }
+
+    private void recordLiveError(String error) {
+        synchronized (evidenceLock) {
+            if (liveErrors.size() >= MAX_LIVE_ERRORS) liveErrors.removeFirst();
+            liveErrors.addLast(error);
+        }
     }
 
     private synchronized void closeSubscription() {
@@ -617,8 +742,7 @@ public final class PatrolConflictV2Client implements AutoCloseable {
         try {
             subscription.close();
         } catch (Exception failure) {
-            if (liveErrors.size() >= 64) liveErrors.remove(0);
-            liveErrors.add("subscription close failed: " + message(failure));
+            recordLiveError("subscription close failed: " + message(failure));
         } finally {
             subscription = null;
             subscribedProtocol = null;
@@ -628,8 +752,10 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     @Override
     public synchronized void close() {
         closeSubscription();
-        liveEvents.clear();
-        liveErrors.clear();
+        synchronized (evidenceLock) {
+            liveEvents.clear();
+            liveErrors.clear();
+        }
     }
 
     private record Provider(
@@ -639,6 +765,18 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     }
 
     private record EventIdentity(UUID eventId, UUID aggregateId, long revision) {
+    }
+
+    private static final class JsonBudget {
+        private int remaining;
+
+        private JsonBudget(int remaining) {
+            this.remaining = remaining;
+        }
+
+        private boolean claim() {
+            return remaining-- > 0;
+        }
     }
 
     private static final class ContractFailure extends RuntimeException {

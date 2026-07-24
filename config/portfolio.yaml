@@ -8,7 +8,7 @@ variables:
   ouroveilRepository: ../world-border-veil
   mehenRepository: ../mehen
   ourometricsRepository: ../ouro-metrics
-  patrolRepository: ../Patrol
+  patrolRepository: ../patrols
   roomsRepository: ../rooms-and-structures
   watershedRepository: ../watershed
   wildanimalbalancerRepository: ../WildAnimalBalancer
@@ -101,7 +101,7 @@ targets:
   - id: patrol
     title: Patrol
     repository: "${patrolRepository}"
-    testedVersion: 1.2.1
+    testedVersion: 0.4.0-alpha
     build:
       - name: Patrol Fabric clean build and tests
         command: ["${platform.gradleWrapper}", :core:clean, :fabric-net:clean, :fabric:clean, :fabric-client:clean, :core:build, :fabric-net:build, :fabric:build, :fabric-client:build]
@@ -112,7 +112,7 @@ targets:
         java: 25
         timeoutMinutes: 15
     artifacts:
-      patrol: { path: fabric/build/libs/patrol-fabric-1.2.1.jar }
+      patrol: { path: fabric/build/libs/patrol-fabric-0.4.0-alpha.jar }
       patrol_adapter: { path: adapters/patrol/build/libs/ouro-harness-patrol-adapter-1.0.0.jar, base: harness }
     scenarios:
       - patrol/runtime-acceptance

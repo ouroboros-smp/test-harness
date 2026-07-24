@@ -62,6 +62,7 @@ steps:
       - { type: adapter.invoke, adapter: patrol, operation: replay, args: { player: PatrolAggressor, afterRevision: 0 }, as: hostile-replay }
       - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 0 }, as: hostile-reconciliation }
       - { type: adapter.invoke, adapter: patrol, operation: events, as: hostile-live-events }
+      - { type: snapshot.capture, name: pre-restart-reconciliation, value: hostile-reconciliation }
     assertions:
       - { type: value.json, value: aggressor-after-second, jsonPath: status.revision, expected: 2 }
       - { type: value.json, value: aggressor-after-second, jsonPath: status.playerId, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
@@ -90,6 +91,7 @@ steps:
       - { type: server.restart, reconnect: true }
       - { type: wait.ticks, ticks: 25 }
       - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 0 }, as: restarted-reconciliation }
+      - { type: snapshot.capture, name: post-restart-reconciliation, value: restarted-reconciliation }
       - { type: adapter.invoke, adapter: patrol, operation: clear-events, as: restarted-events }
     assertions:
       - { type: value.json, value: restarted-reconciliation, jsonPath: status.available, expected: true }
@@ -98,6 +100,7 @@ steps:
       - { type: value.json, value: restarted-reconciliation, jsonPath: count, expected: 2 }
       - { type: value.json, value: restarted-reconciliation, jsonPath: checks.valid, expected: true }
       - { type: value.json, value: restarted-reconciliation, jsonPath: checks.statusCoversReplay, expected: true }
+      - { type: snapshot.equals, left: pre-restart-reconciliation, right: post-restart-reconciliation, path: events }
       - { type: value.json, value: restarted-events, jsonPath: count, expected: 0 }
 
   - id: clear

@@ -13,6 +13,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -91,6 +95,23 @@ class PatrolConflictV2ClientTest {
     }
 
     @Test
+    void unavailableStatusStillRequiresTheRequestedAggregateIdentity() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        PatrolConflictV2Client client = new PatrolConflictV2Client(() -> protocol(
+                Map.of(
+                        "available", false,
+                        "playerId", AGGRESSOR.toString(),
+                        "principal", "player:" + VICTIM,
+                        "aggregateId", AGGRESSOR.toString()),
+                List.of(),
+                subscriber));
+
+        JsonObject status = client.status(AGGRESSOR);
+
+        assertEquals("invalid_status", status.get("error").getAsString());
+    }
+
+    @Test
     void rejectsIdentityMismatchesAndNonMonotonicReplay() {
         AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
         Map<String, Object> mismatched = status(2L);
@@ -143,6 +164,74 @@ class PatrolConflictV2ClientTest {
                 "evidence itself remains bounded when the peer violates its contract");
     }
 
+    @Test
+    void rejectsMalformedStatusFieldsInsideEventData() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        Map<String, Object> badPrincipal = event(1L, "hostile", AGGRESSOR);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> badPrincipalData =
+                (Map<String, Object>) badPrincipal.get("data");
+        badPrincipalData.put("principal", "player:" + VICTIM);
+        Map<String, Object> badPosition = event(2L, "hostile", AGGRESSOR);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> badPositionData =
+                (Map<String, Object>) badPosition.get("data");
+        badPositionData.put("position", Map.of("x", 1.0, "z", 2.0));
+        PatrolConflictV2Client badPrincipalClient = new PatrolConflictV2Client(() -> protocol(
+                status(1L), List.of(badPrincipal), subscriber));
+        PatrolConflictV2Client badPositionClient = new PatrolConflictV2Client(() -> protocol(
+                status(2L), List.of(badPosition), new AtomicReference<>()));
+
+        JsonObject principalReplay = badPrincipalClient.replay(AGGRESSOR, 0L);
+        JsonObject positionReplay = badPositionClient.replay(AGGRESSOR, 0L);
+
+        assertEquals("invalid_replay", principalReplay.get("error").getAsString());
+        assertEquals("invalid_replay", positionReplay.get("error").getAsString());
+        assertFalse(principalReplay.getAsJsonObject("checks")
+                .get("aggregateMatches").getAsBoolean());
+        assertFalse(positionReplay.getAsJsonObject("checks")
+                .get("aggregateMatches").getAsBoolean());
+    }
+
+    @Test
+    void rejectsOversizedExtensionStringsBeforeRetainingEvidence() {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        Map<String, Object> oversized = status(1L);
+        oversized.put("extension", "x".repeat(16_385));
+        PatrolConflictV2Client client = new PatrolConflictV2Client(
+                () -> protocol(oversized, List.of(), subscriber));
+
+        JsonObject status = client.status(AGGRESSOR);
+
+        assertEquals("invalid_json", status.get("error").getAsString());
+    }
+
+    @Test
+    void concurrentSubscribersCannotExceedTheBoundedLiveBuffer() throws Exception {
+        AtomicReference<Consumer<Map<String, Object>>> subscriber = new AtomicReference<>();
+        PatrolConflictV2Client client = new PatrolConflictV2Client(
+                () -> protocol(status(1L), List.of(), subscriber));
+        assertTrue(client.describe().get("installed").getAsBoolean());
+        AtomicLong revision = new AtomicLong();
+        int submitted = 2_400;
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        try {
+            for (int index = 0; index < submitted; index++) {
+                executor.submit(() -> subscriber.get().accept(
+                        event(revision.incrementAndGet(), "hostile", AGGRESSOR)));
+            }
+        } finally {
+            executor.shutdown();
+        }
+        assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+
+        JsonObject events = client.events();
+
+        assertEquals(2_048, events.get("count").getAsInt());
+        assertEquals(submitted - 2_048, events.get("truncated").getAsLong());
+        assertEquals(0, events.getAsJsonArray("errors").size());
+    }
+
     private static Map<String, Object> protocol(
             Map<String, Object> status,
             List<Map<String, Object>> replay,
@@ -179,6 +268,7 @@ class PatrolConflictV2ClientTest {
 
     private static Map<String, Object> event(long revision, String action, UUID aggregateId) {
         Map<String, Object> data = new LinkedHashMap<>(status(revision));
+        data.remove("available");
         data.put("participantRole", "aggressor");
         data.put("counterparty", VICTIM.toString());
         data.put("counterpartyPrincipal", "player:" + VICTIM);
