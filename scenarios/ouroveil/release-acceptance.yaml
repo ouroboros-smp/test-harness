@@ -1,9 +1,9 @@
 schemaVersion: 1
 id: ouroveil/release-acceptance
-title: OuroVeil packaged server enforcement, restart, and companion GameTest
-description: Verifies both packaged mod identities, exercises the server jar with an unmodded protocol client before and after restart, and runs the companion's real Fabric client GameTest render path.
+title: OuroVeil packaged server enforcement, restart, and companion UI GameTests
+description: Verifies both packaged mod identities, exercises the server jar with an unmodded protocol client before and after restart, and checks the companion's real rendered pixels with both Indigo and Sodium.
 issues: [39]
-tags: [fabric, minecraft-26.2, server, vanilla-client, client-companion, gametest, restart]
+tags: [fabric, minecraft-26.2, server, vanilla-client, client-companion, gametest, visual-regression, sodium, compatibility, restart]
 artifacts:
   server: { required: true, description: Packaged OuroVeil server jar }
   companion: { required: true, destination: none, description: Packaged OuroVeil client companion jar }
@@ -41,8 +41,8 @@ steps:
       - { type: file.json, path: inspect/companion/fabric.mod.json, jsonPath: environment, expected: client }
 
   - id: companion_client
-    name: Launch the real Fabric client render and mixin GameTest
-    timeoutSeconds: 600
+    name: Verify the companion UI through Indigo and Sodium
+    timeoutSeconds: 900
     actions:
       - type: process.exec
         command: ["${platform.gradleWrapper}", :companion:runClientGameTest, --no-daemon, --console=plain, --stacktrace]
@@ -51,9 +51,18 @@ steps:
         timeoutMs: 600000
         as: ouroveil-client-gametest-output
         artifactName: ouroveil-client-gametest.log
+      - type: process.exec
+        command: ["${platform.gradleWrapper}", :companion:runClientGameTest, -Pouroveil_client_compat=sodium, --no-daemon, --console=plain, --stacktrace]
+        cwd: "${ouroveilRepository}"
+        java: 25
+        timeoutMs: 600000
+        as: ouroveil-client-sodium-gametest-output
+        artifactName: ouroveil-client-sodium-gametest.log
     assertions:
       - { type: value.json, value: ouroveil-client-gametest-output, operator: contains, expected: BUILD SUCCESSFUL }
       - { type: value.json, value: ouroveil-client-gametest-output, operator: contains, expected: OuroVeil Companion ready }
+      - { type: value.json, value: ouroveil-client-sodium-gametest-output, operator: contains, expected: BUILD SUCCESSFUL }
+      - { type: value.json, value: ouroveil-client-sodium-gametest-output, operator: contains, expected: "sodium 0.9.1+mc26.2" }
 
   - id: configure
     name: Configure a nearby deterministic veil before server startup

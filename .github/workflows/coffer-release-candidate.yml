@@ -23,15 +23,25 @@ jobs:
           repository: ouroboros-smp/coffer
           ref: ${{ inputs.coffer-ref }}
           path: consumer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
       - name: Check out Rooms
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with: { repository: ouroboros-smp/rooms-and-structures, path: rooms }
+        with:
+          repository: ouroboros-smp/rooms-and-structures
+          path: rooms
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
       - name: Check out Kinship
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with: { repository: ouroboros-smp/kinship, path: kinship }
+        with:
+          repository: ouroboros-smp/kinship
+          path: kinship
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
       - name: Check out WildAnimalBalancer
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with: { repository: ouroboros-smp/WildAnimalBalancer, path: wildanimalbalancer }
+        with:
+          repository: ouroboros-smp/WildAnimalBalancer
+          path: wildanimalbalancer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with: { node-version: "24", cache: npm }
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -42,9 +52,12 @@ jobs:
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends xvfb
           fi
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
       - name: Build harness, bridge, and client
         run: |
-          rustup toolchain install nightly-2026-07-13 --profile minimal
           npm ci
           npm run build:all
       - name: Build candidate and interoperability artifacts

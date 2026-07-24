@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     steps:
@@ -24,6 +25,7 @@ jobs:
         with:
           repository: ouroboros-smp/coffer
           path: consumer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
@@ -33,7 +35,10 @@ jobs:
           distribution: temurin
           java-version: "25"
       - name: Install pinned Rust nightly
-        run: rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm test
       - run: npm run fmt:client
@@ -54,6 +59,7 @@ jobs:
       - run: node dist/cli.js doctor
 
   live-smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: verify
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 30
@@ -69,7 +75,10 @@ jobs:
           java-version: "25"
           cache: gradle
       - name: Install pinned Rust nightly
-        run: rustup toolchain install nightly-2026-07-13 --profile minimal --component rustfmt --component clippy
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm run build
       - run: npm run build:client
