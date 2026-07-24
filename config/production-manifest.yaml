@@ -73,6 +73,19 @@ mods:
     portfolioTarget: patrol
     obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]
 
+  - id: parcels
+    title: Parcels
+    modId: parcels
+    owner: first-party
+    bucket: first-party
+    enabled: true
+    version: 0.1.0
+    file: fabric-0.1.0.jar
+    repository: https://github.com/ouroboros-smp/parcels
+    portfolioTarget: parcels
+    obligations: [targeted packaged-jar acceptance, full-manifest boot, restart]
+    touchpoints: [patrol defender presence, kinship principals, rooms claim geometry, coffer lock ordering]
+
   - id: rooms
     title: Rooms and Structures
     modId: rooms

@@ -18,9 +18,9 @@ test("production manifest classifies the complete named stack and exposes known 
   const manifest = await loadProductionManifest();
   const portfolio = await loadPortfolioManifest();
   assert.equal(validateProductionManifest(manifest).length, 0);
-  assert.equal(manifest.mods.length, 44);
-  assert.equal(manifest.mods.filter((mod) => mod.enabled).length, 42);
-  assert.equal(manifest.mods.filter((mod) => mod.enabled && mod.owner === "first-party").length, 10);
+  assert.equal(manifest.mods.length, 45);
+  assert.equal(manifest.mods.filter((mod) => mod.enabled).length, 43);
+  assert.equal(manifest.mods.filter((mod) => mod.enabled && mod.owner === "first-party").length, 11);
   assert.equal(manifest.mods.filter((mod) => mod.enabled && mod.owner === "third-party").length, 32);
   assert.ok(manifest.mods.some((mod) => mod.bucket === "critical-dependency" && mod.id === "luckperms"));
   assert.deepEqual(manifest.mods.filter((mod) => !mod.enabled).map((mod) => mod.id).sort(), ["c2me", "grimac"]);

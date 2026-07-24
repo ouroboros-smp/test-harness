@@ -37,6 +37,7 @@ harness-only bridge on 2026-07-18.
 | #45 | Coffer default, denied, granted, group, policy, and bypass permissions through LuckPerms | `coffer/permissions-luckperms` |
 | #46 | Coffer, Rooms, and Kinship principal, management, provider-failure, selective-transfer, phase-0/phase-1 retry, and restart contracts; pre-unfreeze completion remains blocked | `coffer/civilization-stack` |
 | #51 | Coffer first-attack lock splintering, Common Protection denial, authorized bypass, double-chest atomic clearing, and destruction handoff | `coffer/lock-breaking` |
+| #96, #97 | Rooms accepted inferred-hull geometry matrix, strict revision-pinned canonical span paging, restart stability, and nonmember geometry mutation rebuild against an exact packaged PR artifact | `rooms/inferred-hull-contract` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
 tracks behavioral production-stack interoperability. The executable Coffer
@@ -57,6 +58,27 @@ access. The `coffer/lock-breaking` scenario exercises the same Common Protection
 composition point with a deterministic harness provider and verifies the Coffer
 and vanilla handoff; it does not substitute for #47's packaged Parcels and Rooms
 stack.
+
+Issue [#52](https://github.com/ouroboros-smp/test-harness/issues/52) is tracked
+by the machine-readable `config/raid-safety-matrix.yaml`, not by a placeholder
+scenario. `parcels/offline-protection` is the first released-jar foundation: it
+proves Parcels #5's disabled default, direct-defender offline arm, reconnect
+cancellation, provider-unavailable restart behavior, deadline preservation, and
+rollback with a real attacking client. It does not substitute for the final
+five-jar raid matrix. Packaged Patrol #37 and the accepted Rooms #96 policy are
+now executable foundations. The matrix links remaining blocked final cases to
+Patrol #38, Rooms #97, Parcels #5, or harness #47 and rejects scenario ids on
+blocked cases.
+Its executable foundations reference only maintained scenarios that run
+against merged jars. Portfolio commands and artifact locators can name explicit
+sibling repositories, so the Coffer target now builds and binds Rooms, Kinship,
+and WildAnimalBalancer without relying on ambient prebuilt jars. This resolves
+the artifact-satisfiability gap tracked by
+[#57](https://github.com/ouroboros-smp/test-harness/issues/57). Run
+`node dist/cli.js raid-matrix --require-complete` for the strict
+production-version release gate. Issue #52 is now in `TRACKED_ISSUES` because
+its first packaged-jar foundation is executable. The issue remains open until
+every final five-jar case is executable and green.
 
 Issue [#46](https://github.com/ouroboros-smp/test-harness/issues/46) is not
 ready to close. `coffer/civilization-stack` now proves independent Rooms

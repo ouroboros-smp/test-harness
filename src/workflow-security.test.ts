@@ -29,3 +29,34 @@ test("persistent self-hosted workflows never execute pull request definitions", 
     );
   }
 });
+
+test("GitHub Actions use the crucible runner without Gradle cache post-hooks", async () => {
+  const workflowDirectory = join(repositoryRoot(), ".github", "workflows");
+  const names = (await readdir(workflowDirectory))
+    .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"));
+
+  for (const name of names) {
+    const source = await readFile(join(workflowDirectory, name), "utf8");
+    const runnerDeclarations = [...source.matchAll(/^\s*runs-on:\s*(.+)$/gmu)];
+    assert.ok(runnerDeclarations.length > 0, `${name} must declare at least one runner`);
+    for (const declaration of runnerDeclarations) {
+      assert.equal(
+        declaration[1]?.trim(),
+        "[self-hosted, crucible-pc]",
+        `${name} must use the dedicated crucible-pc runner`,
+      );
+    }
+    assert.doesNotMatch(
+      source,
+      /\bcache:\s*gradle\b/u,
+      `${name} must not enable setup-java's Gradle cache post-hook`,
+    );
+    if (/gradle\/actions\/setup-gradle@/u.test(source)) {
+      assert.match(
+        source,
+        /\bcache-disabled:\s*true\b/u,
+        `${name} must disable setup-gradle cache post-hooks`,
+      );
+    }
+  }
+});

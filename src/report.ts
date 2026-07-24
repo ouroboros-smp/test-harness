@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { assertReportSchema } from "./schema.js";
+import { formatDuration as renderDuration } from "./utils.js";
 import type { ScenarioReport, StepResult } from "./types.js";
 
 const STATUS_ICON = { passed: "✅", failed: "❌", skipped: "⏭️" } as const;
@@ -29,12 +30,9 @@ function markdown(value: unknown): string {
     .replaceAll("\n", "<br>");
 }
 
+// Scenario reports keep two-decimal precision for sub-ten-second step durations.
 function formatDuration(milliseconds: number): string {
-  if (milliseconds < 1_000) return `${Math.round(milliseconds)}ms`;
-  if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(milliseconds < 10_000 ? 2 : 1)}s`;
-  const minutes = Math.floor(milliseconds / 60_000);
-  const seconds = Math.round((milliseconds % 60_000) / 1_000);
-  return `${minutes}m ${seconds}s`;
+  return renderDuration(milliseconds, 2);
 }
 
 function formatTimestamp(value: string): string {

@@ -17,6 +17,19 @@ export function elapsedTimer(): () => number {
   return () => Math.max(0, Math.round(performance.now() - started));
 }
 
+// Render a duration for human reports. Round to the displayed precision first so the seconds
+// component can never round up to 60, which would otherwise print an impossible "1m 60s" or
+// "60.0s" at the sub-minute rounding boundary.
+export function formatDuration(milliseconds: number, subTenSecondDigits = 1): string {
+  if (milliseconds < 1_000) return `${Math.round(milliseconds)}ms`;
+  if (milliseconds < 60_000) {
+    const seconds = (milliseconds / 1_000).toFixed(milliseconds < 10_000 ? subTenSecondDigits : 1);
+    if (Number(seconds) < 60) return `${seconds}s`;
+  }
+  const totalSeconds = Math.round(milliseconds / 1_000);
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+}
+
 export async function ensureDirectory(path: string): Promise<string> {
   const absolute = resolve(path);
   await mkdir(absolute, { recursive: true });
