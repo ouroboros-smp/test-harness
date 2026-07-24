@@ -4,7 +4,15 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadPins, resolveScenario } from "./manifest.js";
-import { assertComparison, deleteConfinedFile, extractValue, runScenario, samplePerformance, waitUntilAssertion } from "./runner.js";
+import {
+  assertComparison,
+  deleteConfinedFile,
+  extractValue,
+  readClientStateValue,
+  runScenario,
+  samplePerformance,
+  waitUntilAssertion,
+} from "./runner.js";
 import { HarnessError } from "./errors.js";
 
 test("dry-run executes the application contract without downloads or Java", async () => {
@@ -75,6 +83,29 @@ test("value extraction reads structured action output and rejects missing paths"
   assert.equal(extractValue(value, "0.id"), "structure-1");
   assert.equal(extractValue(value, "0.anchor.x"), 4);
   assert.throws(() => extractValue(value, "0.anchor.y"), /path 0\.anchor\.y is missing/);
+});
+
+test("client connection state remains observable after a clean protocol exit", async () => {
+  let stateRequests = 0;
+  const disconnected = {
+    connected: false,
+    state: async () => {
+      stateRequests++;
+      throw new Error("state RPC must not run after disconnect");
+    },
+  };
+  assert.equal(await readClientStateValue(disconnected, "connected"), false);
+  assert.equal(stateRequests, 0);
+
+  const connected = {
+    connected: true,
+    state: async () => {
+      stateRequests++;
+      return { health: 20 };
+    },
+  };
+  assert.equal(await readClientStateValue(connected, "health"), 20);
+  assert.equal(stateRequests, 1);
 });
 
 test("sampled performance exposes release-gate percentiles", () => {

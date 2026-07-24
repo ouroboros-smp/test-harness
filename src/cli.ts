@@ -12,9 +12,11 @@ import {
   loadProductionManifest,
   resolveProductionArtifacts,
 } from "./production-manifest.js";
+import { compareScenarioReports } from "./report-compare.js";
 import { runScenario } from "./runner.js";
-import type { JsonPrimitive, RunOptions } from "./types.js";
-import { fileExists, withTimeout } from "./utils.js";
+import { assertReportSchema } from "./schema.js";
+import type { JsonPrimitive, RunOptions, ScenarioReport } from "./types.js";
+import { fileExists, readJson, withTimeout } from "./utils.js";
 
 interface ParsedArgs {
   positionals: string[];
@@ -39,7 +41,31 @@ async function main(): Promise<void> {
       return;
     }
     case "smoke": await run("harness/live-smoke", args); return;
+    case "compare-reports": {
+      const [leftPath, rightPath] = args.positionals;
+      if (!leftPath || !rightPath) throw new HarnessError("USAGE", "compare-reports requires two report paths");
+      await compareReports(leftPath, rightPath, args.flags.has("json"));
+      return;
+    }
     default: throw new HarnessError("USAGE", `Unknown command: ${command}`);
+  }
+}
+
+async function compareReports(leftPath: string, rightPath: string, json: boolean): Promise<void> {
+  const left = await readJson<ScenarioReport>(leftPath);
+  const right = await readJson<ScenarioReport>(rightPath);
+  assertReportSchema(left);
+  assertReportSchema(right);
+  const differences = compareScenarioReports(left, right);
+  if (json) {
+    console.log(JSON.stringify({ equivalent: differences.length === 0, differences }, null, 2));
+  } else if (differences.length === 0) {
+    console.log(`Semantically equivalent scenario reports for ${left.scenario.id}`);
+  } else {
+    for (const difference of differences) console.error(`DIVERGED ${difference}`);
+  }
+  if (differences.length > 0) {
+    throw new HarnessError("REPORTS_DIVERGED", `${differences.length} semantic difference(s) between ${leftPath} and ${rightPath}`);
   }
 }
 
@@ -55,6 +81,7 @@ Usage:
   ouro-harness interop --mods-directory PATH [options]
   ouro-harness run <scenario-id|path> [options]
   ouro-harness smoke [options]
+  ouro-harness compare-reports <left-report.json> <right-report.json> [--json]
 
 Run options:
   --artifact NAME=PATH    Supply a packaged consumer/dependency jar (repeatable)

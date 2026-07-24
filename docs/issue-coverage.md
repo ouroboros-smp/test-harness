@@ -30,6 +30,7 @@ harness-only bridge on 2026-07-18.
 | #34 | Server-tick synchronization for repeated KeepGear death/respawn cases | `keepgear/acceptance` |
 | #36 | Authoritative server-position anchoring for cross-player block actions | `coffer/runtime-acceptance` |
 | #37 | Patrol symmetric pre-hit combat tags, refresh, disconnect/restart retention, death clear, expiry, and conflict-v3 contract | `patrol/combat-tag-v3-contract` |
+| #38 | Patrol native manual/idle AFK, cooldown, protection, combat revocation, reconnect/restart denial, and ephemeral recovery | `patrol/native-afk-v3-contract` |
 | #39 | Composable production-stack behavior contracts; OuroVeil contributes packaged boot, unmodded-client recovery, restart, and companion-client GameTest evidence | `ouroveil/release-acceptance`, `portfolio/full-manifest-compatibility` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
 | #44 | Canonical Coffer counters on the installed FabricExporter endpoint | `coffer/metrics-exporter` |

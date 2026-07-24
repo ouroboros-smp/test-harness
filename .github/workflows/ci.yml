@@ -90,3 +90,76 @@ jobs:
           name: live-fabric-smoke
           path: artifacts/live-smoke
           if-no-files-found: error
+
+  patrol-native-afk-contract:
+    needs: verify
+    runs-on: [self-hosted, crucible-pc]
+    timeout-minutes: 60
+    env:
+      PATROL_COMMIT: 3fc68b10cdebfe1cd1b3f84ba39ffd85c235750d
+      PATROL_JAR: patrol-src/fabric/build/libs/patrol-fabric-0.4.0-alpha.jar
+      PATROL_ADAPTER_JAR: adapters/patrol/build/libs/ouro-harness-patrol-adapter-1.0.0.jar
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Check out exact Patrol PR artifact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/patrol
+          ref: 3fc68b10cdebfe1cd1b3f84ba39ffd85c235750d
+          path: patrol-src
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+      - run: npm ci
+      - run: npm run build
+      - run: npm run build:client
+      - name: Build exact Patrol PR jar
+        working-directory: patrol-src
+        run: ./gradlew :core:build :fabric-net:build :fabric:build --no-daemon
+      - name: Build harness bridge and Patrol adapter
+        run: ./gradlew :bridge:build :adapters:patrol:build --no-daemon
+      - name: Record immutable commit and jar provenance
+        run: |
+          mkdir -p artifacts/patrol-native-afk-contract
+          actual="$(git -C patrol-src rev-parse HEAD)"
+          if [ "${actual}" != "${PATROL_COMMIT}" ]; then
+            echo "Patrol checkout drift: expected ${PATROL_COMMIT}, got ${actual}" >&2
+            exit 1
+          fi
+          jar_sha="$(sha256sum "${PATROL_JAR}" | cut -d" " -f1)"
+          adapter_sha="$(sha256sum "${PATROL_ADAPTER_JAR}" | cut -d" " -f1)"
+          printf '{"schemaVersion":1,"patrol":{"repository":"ouroboros-smp/patrol","commit":"%s","jarSha256":"%s"},"harness":{"repository":"ouroboros-smp/test-harness","commit":"%s","adapterSha256":"%s"}}\n' \
+            "${PATROL_COMMIT}" "${jar_sha}" "${GITHUB_SHA}" "${adapter_sha}" \
+            > artifacts/patrol-native-afk-contract/provenance.json
+      - name: Execute the packaged native AFK contract twice
+        run: |
+          node dist/cli.js run patrol/native-afk-v3-contract \
+            --artifact patrol=${PATROL_JAR} \
+            --artifact patrol_adapter=${PATROL_ADAPTER_JAR} \
+            --output artifacts/patrol-native-afk-contract/run1
+          node dist/cli.js run patrol/native-afk-v3-contract \
+            --artifact patrol=${PATROL_JAR} \
+            --artifact patrol_adapter=${PATROL_ADAPTER_JAR} \
+            --output artifacts/patrol-native-afk-contract/run2
+      - name: Enforce semantic two-run agreement
+        run: >-
+          node dist/cli.js compare-reports
+          artifacts/patrol-native-afk-contract/run1/report.json
+          artifacts/patrol-native-afk-contract/run2/report.json
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: patrol-native-afk-contract-evidence
+          path: artifacts/patrol-native-afk-contract
+          if-no-files-found: error

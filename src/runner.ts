@@ -723,6 +723,17 @@ export function extractValue(value: JsonValue | undefined, path: string): JsonVa
   return extracted;
 }
 
+export async function readClientStateValue(
+  target: Pick<ProtocolClient, "connected" | "state">,
+  path: string,
+): Promise<JsonValue | undefined> {
+  // A server kick can close the protocol process before a follow-up state RPC.
+  // Connection state belongs to the supervisor, so it remains observable after
+  // that clean exit without racing a request against process shutdown.
+  if (path === "connected") return target.connected;
+  return getJsonPath(await target.state(), path);
+}
+
 async function executeAssertion(context: RunnerContext, assertion: HarnessAssertion, evidence: Record<string, JsonValue>): Promise<void> {
   const string = (name: string, fallback?: string) => {
     const value = assertion[name];
@@ -781,9 +792,9 @@ async function executeAssertion(context: RunnerContext, assertion: HarnessAssert
     case "client.window": {
       const target = context.clients.get(string("client"));
       if (!target) throw new HarnessError("UNKNOWN_CLIENT", string("client"));
-      const state = await target.state();
       const defaultPath = assertion.type === "client.inventory" ? "inventory" : assertion.type === "client.window" ? "window" : "";
-      const actual = getJsonPath(state, string("path", defaultPath));
+      const path = string("path", defaultPath);
+      const actual = await readClientStateValue(target, path);
       assertComparison(actual, assertion.operator ?? "equals", assertion.expected, `${assertion.type} ${string("path", defaultPath)}`);
       evidence[assertion.type] = actual ?? null;
       return;
