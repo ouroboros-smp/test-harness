@@ -19,6 +19,21 @@ for (let x = box[0]; x <= box[3]; x += 1) {
 const database = new DatabaseSync(resolve(databasePath));
 try {
   database.exec("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
+  const dependency = database.prepare(`
+    SELECT COUNT(*) AS count
+    FROM structure_hull_dependency_rooms
+    WHERE structure_id=? AND room_id=?
+  `).get(structureId, roomId);
+  const persistedHull = database.prepare(`
+    SELECT source_revision AS revision
+    FROM structure_hulls WHERE structure_id=?
+  `).get(structureId);
+  if (dependency?.count !== 1 || persistedHull?.revision !== 1) {
+    throw new Error(
+      `durable dependency precondition failed: dependency=${dependency?.count}`
+      + ` hullRevision=${persistedHull?.revision}`,
+    );
+  }
   const marker = database.prepare(`
     UPDATE markers SET min_x=?,min_y=?,min_z=?,max_x=?,max_y=?,max_z=?
     WHERE id=?
@@ -31,18 +46,21 @@ try {
   const revision = database.prepare(`
     UPDATE structure_hull_revisions SET revision=revision+1 WHERE structure_id=?
   `).run(structureId);
-  const deleted = database.prepare(
-    "DELETE FROM structure_hulls WHERE structure_id=?",
-  ).run(structureId);
   if (marker.changes !== 1 || geometry.changes !== 1
-      || revision.changes !== 1 || deleted.changes !== 1) {
+      || revision.changes !== 1) {
     throw new Error(
       `mutation precondition failed: marker=${marker.changes} geometry=${geometry.changes}`
-      + ` revision=${revision.changes} hull=${deleted.changes}`,
+      + ` revision=${revision.changes}`,
     );
   }
   database.exec("COMMIT");
-  process.stdout.write(`${JSON.stringify({ structureId, roomId, revisionIncremented: true })}\n`);
+  process.stdout.write(`${JSON.stringify({
+    structureId,
+    roomId,
+    durableDependencyVerified: true,
+    staleHullRetainedForRevisionFence: true,
+    revisionIncremented: true,
+  })}\n`);
 } catch (error) {
   try {
     database.exec("ROLLBACK");

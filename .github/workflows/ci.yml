@@ -96,7 +96,7 @@ jobs:
     runs-on: [self-hosted, crucible-pc]
     timeout-minutes: 35
     env:
-      ROOMS_COMMIT: 071e4ea617f8e8951f6bec8d8b83e7ce02aa897d
+      ROOMS_COMMIT: a4a5f811087fded6f522f26f77038fafd7b340e4
       ROOMS_JAR: rooms-consumer/platform/fabric/build/libs/rooms-fabric-0.3.1.jar
       ROOMS_ADAPTER_JAR: adapters/rooms/build/libs/ouro-harness-rooms-adapter-1.0.0.jar
     steps:
@@ -105,7 +105,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ouroboros-smp/rooms-and-structures
-          ref: 071e4ea617f8e8951f6bec8d8b83e7ce02aa897d
+          ref: a4a5f811087fded6f522f26f77038fafd7b340e4
           path: rooms-consumer
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
           persist-credentials: false
@@ -121,22 +121,22 @@ jobs:
       - run: npm run build
       - name: Build exact Rooms PR jar
         working-directory: rooms-consumer
-        run: ./gradlew.bat :platform:fabric:build --no-daemon
+        run: ./gradlew :platform:fabric:build --no-daemon
       - name: Build harness bridge and Rooms adapter
-        run: ./gradlew.bat :bridge:build :adapters:rooms:build --no-daemon
+        run: ./gradlew :bridge:build :adapters:rooms:build --no-daemon
       - name: Record immutable commit and jar provenance
         run: >-
           node scripts/write-artifact-provenance.mjs
           artifacts/rooms-hull-contract/provenance.json
-          $env:ROOMS_COMMIT
-          $env:ROOMS_JAR
-          $env:GITHUB_SHA
-          $env:ROOMS_ADAPTER_JAR
+          ${ROOMS_COMMIT}
+          ${ROOMS_JAR}
+          ${GITHUB_SHA}
+          ${ROOMS_ADAPTER_JAR}
       - name: Execute accepted Rooms hull matrix against exact PR jar
         run: >-
           node dist/cli.js run rooms/inferred-hull-contract
-          --artifact consumer=$env:ROOMS_JAR
-          --artifact rooms_adapter=$env:ROOMS_ADAPTER_JAR
+          --artifact consumer=${ROOMS_JAR}
+          --artifact rooms_adapter=${ROOMS_ADAPTER_JAR}
           --output artifacts/rooms-hull-contract
       - if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

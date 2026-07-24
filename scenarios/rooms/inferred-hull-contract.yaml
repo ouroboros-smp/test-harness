@@ -122,6 +122,8 @@ steps:
       - { type: snapshot.equals, left: courtyard-before, right: courtyard-after }
       - { type: snapshot.equals, left: attached-before, right: attached-after }
       - { type: snapshot.equals, left: hallway-before, right: hallway-after }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structure_hull_dependency_queries", jsonPath: "0.count", expected: 6 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structure_hull_dependency_rooms WHERE structure_id='00000060-0000-0000-0000-000000000006' AND room_id='00000060-0000-0001-0000-00000000000d'", jsonPath: "0.count", expected: 1 }
       - { type: log.absent, pattern: "inferred hull refresh failed|structure hull ObjectShare key is already owned" }
 
   - id: restart-mutation
@@ -145,6 +147,7 @@ steps:
       - { type: value.json, value: hallway-mutated, jsonPath: metadataConsistent, expected: true }
       - { type: value.json, value: hallway-mutated, jsonPath: cardinalityConsistent, expected: true }
       - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT revision FROM structure_hull_revisions WHERE structure_id='00000060-0000-0000-0000-000000000006'", jsonPath: "0.revision", expected: 2 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT source_revision FROM structure_hull_dependency_queries WHERE structure_id='00000060-0000-0000-0000-000000000006'", jsonPath: "0.source_revision", expected: 2 }
       - { type: log.absent, pattern: "OutOfMemoryError|BufferUnderflowException|NegativeArraySizeException" }
 
   - id: stop
