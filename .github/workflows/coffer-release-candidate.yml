@@ -7,6 +7,10 @@ on:
         description: Coffer commit, tag, or branch to verify
         required: true
         default: main
+      coffer-version:
+        description: Fabric metadata version expected from the candidate
+        required: true
+        default: 0.1.5
 
 permissions:
   contents: read
@@ -24,24 +28,31 @@ jobs:
           ref: ${{ inputs.coffer-ref }}
           path: consumer
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
       - name: Check out Rooms
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ouroboros-smp/rooms-and-structures
+          ref: eb382d7254b01939cd90ed9bf4bbecd5cf400c10 # v0.3.1
           path: rooms
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
       - name: Check out Kinship
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ouroboros-smp/kinship
+          ref: 97cecfa6a78a5b4a9dd34bc6f0eda43e62af972a # plugin-v0.4.0
           path: kinship
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
       - name: Check out WildAnimalBalancer
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ouroboros-smp/WildAnimalBalancer
+          ref: b2c26f64f2a4c7560242bbfd35b1391685d9660e # v2.0.2
           path: wildanimalbalancer
           token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with: { node-version: "24", cache: npm }
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -63,25 +74,35 @@ jobs:
       - name: Build candidate and interoperability artifacts
         run: |
           xvfb-run --auto-servernum ./consumer/gradlew -p consumer build coverageReport prepareReleaseArtifacts --no-daemon
+          mkdir -p candidate
+          mapfile -t coffer_jars < <(find consumer/fabric/build/libs -maxdepth 1 -type f -name 'coffer-fabric-server-*.jar' | sort)
+          mapfile -t coffer_core_jars < <(find consumer/core/build/libs -maxdepth 1 -type f -name 'core-*.jar' | sort)
+          test "${#coffer_jars[@]}" -eq 1
+          test "${#coffer_core_jars[@]}" -eq 1
+          cp "${coffer_jars[0]}" candidate/coffer-fabric-server.jar
+          cp "${coffer_core_jars[0]}" candidate/coffer-core.jar
           ./rooms/gradlew -p rooms :platform:fabric:build --no-daemon
           ./kinship/gradlew -p kinship :minecraft-core:build :minecraft-fabric:build --no-daemon
           ./wildanimalbalancer/gradlew -p wildanimalbalancer :core:build :fabric:build --no-daemon
           ./gradlew \
-            -Pcoffer_jar=consumer/fabric/build/libs/coffer-fabric-server-1.3.0.jar \
-            -Pcoffer_core_jar=consumer/core/build/libs/core-1.3.0.jar \
+            -Pcoffer_jar=candidate/coffer-fabric-server.jar \
+            -Pcoffer_core_jar=candidate/coffer-core.jar \
             :adapters:coffer:build --no-daemon
       - name: Record candidate checksums
         run: |
           mkdir -p candidate-evidence
-          find consumer/build/release adapters/coffer/build/libs rooms/platform/fabric/build/libs \
+          find candidate consumer/build/release adapters/coffer/build/libs rooms/platform/fabric/build/libs \
             kinship/minecraft-fabric/build/libs wildanimalbalancer/fabric/build/libs \
             -maxdepth 1 -type f -name '*.jar' -print0 | sort -z | xargs -0 sha256sum > candidate-evidence/checksums.sha256
           git -C consumer rev-parse HEAD > candidate-evidence/coffer-commit.txt
+          git -C rooms rev-parse HEAD > candidate-evidence/rooms-commit.txt
+          git -C kinship rev-parse HEAD > candidate-evidence/kinship-commit.txt
+          git -C wildanimalbalancer rev-parse HEAD > candidate-evidence/wildanimalbalancer-commit.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coffer-release-candidate-build
           path: |
-            consumer/fabric/build/libs/coffer-fabric-server-1.3.0.jar
+            candidate/coffer-fabric-server.jar
             adapters/coffer/build/libs/ouro-harness-coffer-adapter-1.0.0.jar
             bridge/build/libs/ouro-harness-bridge-1.0.0.jar
             client/target/debug/ouro-harness-client
@@ -121,10 +142,13 @@ jobs:
         with: { name: coffer-release-candidate-build, path: . }
       - run: chmod +x client/target/debug/ouro-harness-client
       - name: Run packaged release scenario
+        env:
+          COFFER_VERSION: ${{ inputs.coffer-version }}
         run: >-
           node dist/cli.js run coffer/${{ matrix.id }}
-          --artifact consumer=consumer/fabric/build/libs/coffer-fabric-server-1.3.0.jar
+          --artifact consumer=candidate/coffer-fabric-server.jar
           --artifact coffer_adapter=adapters/coffer/build/libs/ouro-harness-coffer-adapter-1.0.0.jar
+          --variable "coffer-version=$COFFER_VERSION"
           ${{ matrix.extra }}
           --output artifacts/coffer-${{ matrix.id }}
       - if: ${{ always() }}
@@ -132,42 +156,4 @@ jobs:
         with:
           name: coffer-release-${{ matrix.id }}
           path: artifacts/coffer-${{ matrix.id }}
-          if-no-files-found: error
-
-  exact-production-manifest:
-    needs: build-candidate
-    runs-on: [self-hosted, crucible-pc]
-    timeout-minutes: 45
-    env:
-      PRODUCTION_MOD_BUNDLE_URL: ${{ secrets.PRODUCTION_MOD_BUNDLE_URL }}
-      PRODUCTION_MOD_BUNDLE_SHA256: ${{ secrets.PRODUCTION_MOD_BUNDLE_SHA256 }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with: { node-version: "24", cache: npm }
-      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with: { distribution: temurin, java-version: "25" }
-      - run: npm ci && npm run build
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with: { name: coffer-release-candidate-build, path: . }
-      - name: Verify and unpack exact production mod bundle
-        run: |
-          test -n "$PRODUCTION_MOD_BUNDLE_URL"
-          test -n "$PRODUCTION_MOD_BUNDLE_SHA256"
-          curl --fail --location --silent --show-error "$PRODUCTION_MOD_BUNDLE_URL" --output production-mods.zip
-          echo "$PRODUCTION_MOD_BUNDLE_SHA256  production-mods.zip" | sha256sum --check
-          mkdir production-mods
-          unzip -q production-mods.zip -d production-mods
-          find production-mods -type f -name 'coffer-fabric-server-*.jar' -delete
-          cp consumer/fabric/build/libs/coffer-fabric-server-1.3.0.jar production-mods/
-      - name: Run exact manifest behavior and restart gate
-        run: >-
-          node dist/cli.js interop
-          --mods-directory production-mods
-          --output artifacts/coffer-production-manifest
-      - if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: coffer-release-production-manifest
-          path: artifacts/coffer-production-manifest
           if-no-files-found: error

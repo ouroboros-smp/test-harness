@@ -4,6 +4,8 @@ title: Coffer, Rooms, and Kinship principal and access interoperability
 description: Builds a real Rooms structure owned by a Kinship principal, then proves personal fallback, premises administration, ordinary-member denial, opt-in Kinship access, and restart persistence with packaged jars and real clients.
 issues: [39, 46]
 tags: [coffer, rooms, kinship, civilization, multi-client, restart]
+variables:
+  coffer-version: 0.1.5
 artifacts:
   consumer: { required: true, description: Packaged Coffer server jar }
   coffer_adapter: { required: true, description: Harness-only Coffer adapter }
@@ -34,7 +36,7 @@ steps:
       - type: wait.until
         assertion: { type: client.event, client: head, event: message, pattern: "family is now known as Interop" }
     assertions:
-      - { type: bridge.json, path: /v1/mods, jsonPath: coffer.version, expected: 1.3.0 }
+      - { type: bridge.json, path: /v1/mods, jsonPath: coffer.version, expected: "${coffer-version}" }
       - { type: bridge.json, path: /v1/mods, jsonPath: rooms.version, expected: 0.3.1 }
       - { type: bridge.json, path: /v1/mods, jsonPath: kinship.version, expected: 0.4.0 }
 

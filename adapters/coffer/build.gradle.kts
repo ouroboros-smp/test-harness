@@ -18,10 +18,10 @@ repositories {
 }
 
 val cofferJar = providers.gradleProperty("coffer_jar")
-    .orElse("../coffer/fabric/build/libs/coffer-fabric-server-1.3.0.jar")
+    .orElse("../coffer/fabric/build/libs/coffer-fabric-server-0.1.5.jar")
     .get()
 val cofferCoreJar = providers.gradleProperty("coffer_core_jar")
-    .orElse("../coffer/core/build/libs/core-1.3.0.jar")
+    .orElse("../coffer/core/build/libs/core-0.1.5.jar")
     .get()
 
 dependencies {
