@@ -20,6 +20,7 @@ function compile(name: string): ValidateFunction {
 
 const validateScenarioDocument = compile("scenario.schema.json");
 const validateReportDocument = compile("report.schema.json");
+const validateRaidSafetyMatrixDocument = compile("raid-safety-matrix.schema.json");
 
 function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
   return (errors ?? []).map((error) => {
@@ -30,6 +31,10 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
 
 export function scenarioSchemaErrors(value: unknown): string[] {
   return validateScenarioDocument(value) ? [] : formatErrors(validateScenarioDocument.errors);
+}
+
+export function raidSafetyMatrixSchemaErrors(value: unknown): string[] {
+  return validateRaidSafetyMatrixDocument(value) ? [] : formatErrors(validateRaidSafetyMatrixDocument.errors);
 }
 
 export function assertReportSchema(value: unknown): void {

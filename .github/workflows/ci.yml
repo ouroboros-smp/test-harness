@@ -46,6 +46,7 @@ jobs:
       - run: npm run test:client
       - run: npm run build:client
       - run: npm run test:bridge
+      - run: npm run test:parcels-adapter
       - run: npm run test:patrol-adapter
       - name: Build Coffer adapter contract dependency
         working-directory: consumer
@@ -150,4 +151,65 @@ jobs:
         with:
           name: rooms-hull-contract-evidence
           path: artifacts/rooms-hull-contract
+          if-no-files-found: error
+
+  parcels-offline-protection:
+    needs: verify
+    runs-on: [self-hosted, crucible-pc]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Check out exact Parcels review head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ouroboros-smp/parcels
+          ref: f0cfc916778e1e5c54e7e71725ac7b06b879306a
+          path: consumer
+          token: ${{ secrets.OUROBOROS_CI_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # v1
+        with:
+          toolchain: nightly-2026-07-13
+          components: rustfmt, clippy
+      - run: npm ci
+      - name: Build the exact packaged Parcels jar
+        working-directory: consumer
+        run: ./gradlew :core:clean :fabric:clean :core:build :fabric:build --no-daemon
+      - run: npm run build
+      - run: npm run build:client
+      - run: npm run test:bridge
+      - run: npm run test:parcels-adapter
+      - name: Record exact source and artifact provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/parcels-offline-protection | Out-Null
+          $expected = "f0cfc916778e1e5c54e7e71725ac7b06b879306a"
+          $actual = (git -C consumer rev-parse HEAD).Trim()
+          if ($actual -ne $expected) { throw "Parcels checkout drift: expected $expected, got $actual" }
+          $provenance = [ordered]@{
+            parcelsCommit = $actual
+            parcelsJarSha256 = (Get-FileHash consumer/fabric/build/libs/fabric-0.1.0.jar -Algorithm SHA256).Hash.ToLowerInvariant()
+            adapterJarSha256 = (Get-FileHash adapters/parcels/build/libs/ouro-harness-parcels-adapter-1.0.0.jar -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          $provenance | ConvertTo-Json | Set-Content artifacts/parcels-offline-protection/provenance.json
+      - name: Execute released-jar Parcels offline-protection acceptance
+        run: >-
+          node dist/cli.js run parcels/offline-protection
+          --artifact consumer=consumer/fabric/build/libs/fabric-0.1.0.jar
+          --artifact parcels_adapter=adapters/parcels/build/libs/ouro-harness-parcels-adapter-1.0.0.jar
+          --output artifacts/parcels-offline-protection
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: parcels-offline-protection
+          path: artifacts/parcels-offline-protection
           if-no-files-found: error
