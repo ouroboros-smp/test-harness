@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ouro_harness_rooms_adapter",
+  "version": "${version}",
+  "name": "Ouroboros Harness Rooms Adapter",
+  "description": "Test-only reader and released-domain verifier for Rooms inferred hulls.",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.ouroboros.harness.adapter.rooms.RoomsHarnessAdapterMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*",
+    "ouro_harness_bridge": "*",
+    "rooms": "*"
+  }
+}

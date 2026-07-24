@@ -1,0 +1,157 @@
+schemaVersion: 1
+id: rooms/inferred-hull-contract
+title: Rooms accepted inferred-hull matrix, restart, and mutation contract
+description: Runs the issue-96 accepted geometry matrix against the packaged issue-97 production deriver through its revision-pinned ObjectShare protocol, validates exact canonical spans, proves restart stability, and rebuilds after a persisted nonmember geometry mutation.
+issues: [96, 97]
+tags: [fabric, minecraft-26.2, rooms, public-api, sqlite, exact-geometry, restart, mutation]
+artifacts:
+  consumer: { required: true, description: Exact packaged Rooms Fabric server jar }
+  rooms_adapter: { required: true, description: Harness-only strict structure-hulls/v1 reader }
+server:
+  memoryMb: 1792
+  startupTimeoutSeconds: 300
+  reuseWorldOnRestart: true
+steps:
+  - id: initialize
+    name: Initialize the exact packaged jar and validate protocol capabilities
+    actions:
+      - { type: server.start }
+      - { type: adapter.invoke, adapter: rooms, operation: protocol, as: hull-protocol }
+    assertions:
+      - { type: value.json, value: hull-protocol, jsonPath: installed, expected: true }
+      - { type: value.json, value: hull-protocol, jsonPath: protocolVersion, expected: 1 }
+      - { type: value.json, value: hull-protocol, jsonPath: eventSchemaVersion, expected: 1 }
+      - { type: value.json, value: hull-protocol, jsonPath: hasGet, expected: true }
+      - { type: value.json, value: hull-protocol, jsonPath: hasSpanPage, expected: true }
+      - { type: value.json, value: hull-protocol, jsonPath: hasSubscribe, expected: true }
+
+  - id: seed
+    name: Seed the locked issue-96 exact geometry matrix
+    actions:
+      - { type: server.stop }
+      - type: process.exec
+        command: [node, scripts/seed-rooms-hull-matrix.mjs, "${run.directory}/config/rooms/rooms.db"]
+        as: seeded
+      - { type: server.start }
+    assertions:
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structures", jsonPath: "0.count", expected: 6 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM room_lifecycle_geometry", jsonPath: "0.count", expected: 15 }
+
+  - id: derive
+    name: Derive every accepted production layout and validate canonical metadata
+    timeoutSeconds: 300
+    actions:
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000001" }, jsonPath: available, expected: true }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000002" }, jsonPath: available, expected: true }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000003" }, jsonPath: available, expected: true }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000004" }, jsonPath: available, expected: true }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000005" }, jsonPath: available, expected: true }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000006" }, jsonPath: available, expected: true }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000001" }, as: straight-before }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000002" }, as: l-before }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000003" }, as: attic-before }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000004" }, as: courtyard-before }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000005" }, as: attached-before }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000006" }, as: hallway-before }
+      - { type: value.extract, value: hallway-before, jsonPath: sourceRevision, as: hallway-before-revision }
+    assertions:
+      - { type: value.json, value: straight-before, jsonPath: world, expected: "minecraft:overworld" }
+      - { type: value.json, value: straight-before, jsonPath: ruleVersion, expected: 1 }
+      - { type: value.json, value: straight-before, jsonPath: sourceRevision, expected: 1 }
+      - { type: value.json, value: straight-before, jsonPath: canonicalSpans, expected: true }
+      - { type: value.json, value: straight-before, jsonPath: metadataConsistent, expected: true }
+      - { type: value.json, value: straight-before, jsonPath: cardinalityConsistent, expected: true }
+      - { type: value.json, value: straight-before, jsonPath: spanCount, operator: gt, expected: 0 }
+      - { type: value.json, value: straight-before, jsonPath: cellCount, operator: gt, expected: 0 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structure_hulls", jsonPath: "0.count", expected: 6 }
+
+  - id: exact-probes
+    name: Assert all accepted must-protect and must-exclude coordinates
+    actions: []
+    assertions:
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000001", x: 4, y: 1, z: 2 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000001", x: -1, y: 1, z: 2 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000001", x: -2, y: 1, z: 2 }, jsonPath: contains, expected: false }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000002", x: 105, y: 1, z: 1 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000002", x: 101, y: 1, z: 5 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000002", x: 107, y: 1, z: 7 }, jsonPath: contains, expected: false }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000003", x: 202, y: 5, z: 2 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000003", x: 202, y: 7, z: 2 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000003", x: 202, y: 8, z: 2 }, jsonPath: contains, expected: false }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000004", x: 305, y: 1, z: 5 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000004", x: 312, y: 1, z: 5 }, jsonPath: contains, expected: false }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000005", x: 402, y: 1, z: 2 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000005", x: 412, y: 1, z: 2 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000005", x: 407, y: 1, z: 2 }, jsonPath: contains, expected: false }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000006", x: 508, y: 1, z: 1 }, jsonPath: contains, expected: true }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000006", x: 524, y: 1, z: 1 }, jsonPath: contains, expected: false }
+
+  - id: restart
+    name: Prove every canonical snapshot is identical after a clean restart
+    timeoutSeconds: 360
+    actions:
+      - { type: server.restart }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000001" }, as: straight-after }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000002" }, as: l-after }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000003" }, as: attic-after }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000004" }, as: courtyard-after }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000005" }, as: attached-after }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000006" }, as: hallway-after }
+    assertions:
+      - { type: snapshot.equals, left: straight-before, right: straight-after }
+      - { type: snapshot.equals, left: l-before, right: l-after }
+      - { type: snapshot.equals, left: attic-before, right: attic-after }
+      - { type: snapshot.equals, left: courtyard-before, right: courtyard-after }
+      - { type: snapshot.equals, left: attached-before, right: attached-after }
+      - { type: snapshot.equals, left: hallway-before, right: hallway-after }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structure_hull_dependency_queries", jsonPath: "0.count", expected: 6 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM structure_hull_dependency_rooms WHERE structure_id='00000060-0000-0000-0000-000000000006' AND room_id='00000060-0000-0001-0000-00000000000d'", jsonPath: "0.count", expected: 1 }
+      - { type: log.absent, pattern: "inferred hull refresh failed|structure hull ObjectShare key is already owned" }
+
+  - id: restart-mutation
+    name: Rebuild at a new revision after a persisted nonmember hallway mutation
+    timeoutSeconds: 360
+    actions:
+      - { type: server.stop }
+      - type: process.exec
+        command: [node, scripts/mutate-rooms-hull-matrix.mjs, "${run.directory}/config/rooms/rooms.db"]
+        as: mutation
+      - { type: server.start }
+      - type: wait.until
+        timeoutMs: 45000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000006" }, jsonPath: available, expected: true }
+      - { type: adapter.invoke, adapter: rooms, operation: snapshot, args: { structureId: "00000060-0000-0000-0000-000000000006" }, as: hallway-mutated }
+    assertions:
+      - { type: value.json, value: hallway-mutated, jsonPath: sourceRevision, operator: gt, expected: "${hallway-before-revision}" }
+      - { type: adapter.assert, adapter: rooms, operation: contains, args: { structureId: "00000060-0000-0000-0000-000000000006", x: 508, y: 1, z: 1 }, jsonPath: contains, expected: false }
+      - { type: value.json, value: hallway-mutated, jsonPath: canonicalSpans, expected: true }
+      - { type: value.json, value: hallway-mutated, jsonPath: metadataConsistent, expected: true }
+      - { type: value.json, value: hallway-mutated, jsonPath: cardinalityConsistent, expected: true }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT revision FROM structure_hull_revisions WHERE structure_id='00000060-0000-0000-0000-000000000006'", jsonPath: "0.revision", expected: 2 }
+      - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT source_revision FROM structure_hull_dependency_queries WHERE structure_id='00000060-0000-0000-0000-000000000006'", jsonPath: "0.source_revision", expected: 2 }
+      - { type: log.absent, pattern: "OutOfMemoryError|BufferUnderflowException|NegativeArraySizeException" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }
