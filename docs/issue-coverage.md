@@ -61,8 +61,11 @@ by the machine-readable `config/raid-safety-matrix.yaml`, not by a placeholder
 scenario. The matrix links each blocked final case to Patrol #37, Rooms
 #96/#97, Parcels #5, or harness #47 and rejects scenario ids on blocked cases.
 Its executable foundations reference only maintained scenarios that run
-against merged jars. Run `node dist/cli.js raid-matrix --require-complete` for
-the strict production-version release gate. Issue #52 remains outside
+against merged jars. The matrix also detects missing portfolio artifact
+bindings, currently tracked by
+[#57](https://github.com/ouroboros-smp/test-harness/issues/57). Run
+`node dist/cli.js raid-matrix --require-complete` for the strict
+production-version release gate. Issue #52 remains outside
 `TRACKED_ISSUES` until every final five-jar case is executable and green.
 
 Issue [#46](https://github.com/ouroboros-smp/test-harness/issues/46) is not

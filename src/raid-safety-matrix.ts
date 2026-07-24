@@ -78,9 +78,12 @@ export function auditRaidSafetyMatrix(
   portfolio: PortfolioManifest,
 ): RaidSafetyMatrixAudit {
   const findings: RaidSafetyMatrixFinding[] = [];
-  const scenarioIds = new Set(scenarios.map((scenario) => scenario.id));
+  const scenariosById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
   const productionMods = new Map(production.mods.map((mod) => [mod.id, mod]));
   const targets = new Map(portfolio.targets.map((target) => [target.id, target]));
+  const targetsByScenario = new Map(
+    portfolio.targets.flatMap((target) => target.scenarios.map((scenario) => [scenario, target] as const)),
+  );
 
   for (const artifact of matrix.production.requiredArtifacts) {
     const mod = productionMods.get(artifact);
@@ -130,13 +133,56 @@ export function auditRaidSafetyMatrix(
 
   for (const entry of [...matrix.foundations, ...matrix.acceptance]) {
     if (entry.status !== "executable") continue;
-    for (const scenario of entry.scenarios) {
-      if (!scenarioIds.has(scenario)) {
+    const boundArtifacts = new Set<string>();
+    for (const reference of entry.scenarios) {
+      const scenario = scenariosById.get(reference.id);
+      if (!scenario) {
         findings.push({
           severity: "error",
           code: "UNKNOWN_SCENARIO",
           entry: entry.id,
-          message: `${entry.id} references unknown runnable scenario ${scenario}`,
+          message: `${entry.id} references unknown runnable scenario ${reference.id}`,
+        });
+        continue;
+      }
+      const target = targetsByScenario.get(reference.id);
+      if (!target) {
+        findings.push({
+          severity: "error",
+          code: "UNCATALOGUED_SCENARIO",
+          entry: entry.id,
+          message: `${reference.id} is not assigned to a portfolio target`,
+        });
+      }
+      for (const [artifact, slot] of Object.entries(reference.bindings)) {
+        boundArtifacts.add(artifact);
+        if (!Object.hasOwn(scenario.artifacts ?? {}, slot)) {
+          findings.push({
+            severity: "error",
+            code: "UNKNOWN_SCENARIO_ARTIFACT",
+            entry: entry.id,
+            artifact,
+            message: `${reference.id} does not declare artifact slot ${slot}`,
+          });
+        } else if (target && !Object.hasOwn(target.artifacts ?? {}, slot)) {
+          findings.push({
+            severity: "blocker",
+            code: "PORTFOLIO_ARTIFACT_MISSING",
+            entry: entry.id,
+            artifact,
+            message: `${target.id} does not supply ${reference.id} artifact slot ${slot}`,
+          });
+        }
+      }
+    }
+    for (const artifact of entry.artifacts) {
+      if (!boundArtifacts.has(artifact)) {
+        findings.push({
+          severity: "error",
+          code: "UNBOUND_ENTRY_ARTIFACT",
+          entry: entry.id,
+          artifact,
+          message: `${entry.id} has no scenario binding for required artifact ${artifact}`,
         });
       }
     }
@@ -204,9 +250,9 @@ function validateEntries(
     if (foundations && rawEntry.status !== "executable") {
       failures.push(`${prefix}.status must be executable`);
     }
-    for (const field of ["artifacts", "scenarios", "proves"] as const) {
-      if (!nonEmptyStringArray(rawEntry[field], field === "scenarios")) {
-        failures.push(`${prefix}.${field} must be ${field === "scenarios" ? "a string array" : "a non-empty string array"}`);
+    for (const field of ["artifacts", "proves"] as const) {
+      if (!nonEmptyStringArray(rawEntry[field])) {
+        failures.push(`${prefix}.${field} must be a non-empty string array`);
       } else if (new Set(rawEntry[field]).size !== rawEntry[field].length) {
         failures.push(`${prefix}.${field} must be unique`);
       }
@@ -221,19 +267,67 @@ function validateEntries(
     if (rawEntry.limitations !== undefined && !nonEmptyStringArray(rawEntry.limitations)) {
       failures.push(`${prefix}.limitations must be a non-empty string array when present`);
     }
+    const scenarioCount = validateScenarioReferences(
+      rawEntry.scenarios,
+      rawEntry.artifacts,
+      prefix,
+      failures,
+    );
     const blockers = validateBlockers(rawEntry.blockers, prefix, failures);
     if (rawEntry.status === "executable") {
-      if (!Array.isArray(rawEntry.scenarios) || rawEntry.scenarios.length === 0) {
+      if (scenarioCount === 0) {
         failures.push(`${prefix} executable entries require scenarios`);
       }
       if (blockers > 0) failures.push(`${prefix} executable entries cannot have blockers`);
     } else if (rawEntry.status === "blocked") {
-      if (Array.isArray(rawEntry.scenarios) && rawEntry.scenarios.length > 0) {
+      if (scenarioCount > 0) {
         failures.push(`${prefix} blocked entries cannot name placeholder scenarios`);
       }
       if (blockers === 0) failures.push(`${prefix} blocked entries require at least one owned blocker`);
     }
   }
+}
+
+function validateScenarioReferences(
+  value: unknown,
+  rawArtifacts: unknown,
+  prefix: string,
+  failures: string[],
+): number {
+  if (!Array.isArray(value)) {
+    failures.push(`${prefix}.scenarios must be an array`);
+    return 0;
+  }
+  const entryArtifacts = new Set(Array.isArray(rawArtifacts)
+    ? rawArtifacts.filter((artifact): artifact is string => typeof artifact === "string")
+    : []);
+  const scenarioIds = new Set<string>();
+  for (const [index, rawReference] of value.entries()) {
+    const referencePrefix = `${prefix}.scenarios[${index}]`;
+    if (!isRecord(rawReference)) {
+      failures.push(`${referencePrefix} must be an object`);
+      continue;
+    }
+    failures.push(...unknownFields(rawReference, new Set(["id", "bindings"]), referencePrefix));
+    if (!nonEmptyString(rawReference.id)) {
+      failures.push(`${referencePrefix}.id is required`);
+    } else if (scenarioIds.has(rawReference.id)) {
+      failures.push(`${prefix}.scenarios must contain unique ids`);
+    } else {
+      scenarioIds.add(rawReference.id);
+    }
+    if (!isRecord(rawReference.bindings) || Object.keys(rawReference.bindings).length === 0) {
+      failures.push(`${referencePrefix}.bindings must be a non-empty object`);
+      continue;
+    }
+    for (const [artifact, slot] of Object.entries(rawReference.bindings)) {
+      if (!entryArtifacts.has(artifact)) {
+        failures.push(`${referencePrefix}.bindings contains undeclared entry artifact ${artifact}`);
+      }
+      if (!nonEmptyString(slot)) failures.push(`${referencePrefix}.bindings.${artifact} must be a non-empty string`);
+    }
+  }
+  return value.length;
 }
 
 function validateBlockers(value: unknown, prefix: string, failures: string[]): number {

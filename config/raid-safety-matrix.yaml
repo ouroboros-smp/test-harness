@@ -14,7 +14,9 @@ foundations:
     title: Packaged Kinship, Rooms, and Coffer provider failure and restart contracts
     status: executable
     artifacts: [kinship, rooms, coffer]
-    scenarios: [coffer/civilization-stack]
+    scenarios:
+      - id: coffer/civilization-stack
+        bindings: {coffer: consumer, rooms: rooms, kinship: kinship}
     proves:
       - Packaged Kinship and Rooms providers compose with Coffer.
       - Missing, malformed, stale, and throwing providers fail closed.
@@ -27,7 +29,9 @@ foundations:
     title: Packaged Patrol conflict-v2 attribution and lifecycle foundation
     status: executable
     artifacts: [patrol]
-    scenarios: [patrol/conflict-v2-contract]
+    scenarios:
+      - id: patrol/conflict-v2-contract
+        bindings: {patrol: patrol}
     proves:
       - Packaged Patrol publishes bounded, availability-aware conflict-v2 facts.
       - Attribution, replay, stale-state, close, reload, persistence, and restart behavior are deterministic.
@@ -38,7 +42,9 @@ foundations:
     title: Packaged Rooms exact containment and persistence foundation
     status: executable
     artifacts: [rooms]
-    scenarios: [rooms/runtime-acceptance]
+    scenarios:
+      - id: rooms/runtime-acceptance
+        bindings: {rooms: consumer}
     proves:
       - Exact room containment, discovery, diagnostics, persistence, reload, and restart are executable.
     limitations:
@@ -48,7 +54,9 @@ foundations:
     title: Packaged Coffer one-hit lock splintering foundation
     status: executable
     artifacts: [coffer]
-    scenarios: [coffer/lock-breaking]
+    scenarios:
+      - id: coffer/lock-breaking
+        bindings: {coffer: consumer}
     proves:
       - Unauthorized first attacks atomically clear single and double-container locks.
       - Authorized attacks and later attacks hand off to downstream durability and vanilla destruction.

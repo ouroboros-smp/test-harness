@@ -272,12 +272,17 @@ export interface RaidSafetyBlocker {
   reason: string;
 }
 
+export interface RaidSafetyScenarioReference {
+  id: string;
+  bindings: Record<string, string>;
+}
+
 export interface RaidSafetyMatrixEntry {
   id: string;
   title: string;
   status: "executable" | "blocked";
   artifacts: string[];
-  scenarios: string[];
+  scenarios: RaidSafetyScenarioReference[];
   proves: string[];
   limitations?: string[];
   blockers?: RaidSafetyBlocker[];

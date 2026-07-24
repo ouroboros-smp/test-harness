@@ -47,6 +47,10 @@ test("raid-safety matrix preserves executable foundations without overstating fi
     finding.code === "MISSING_PRODUCTION_ARTIFACT" && finding.artifact === "parcels"));
   assert.ok(audit.findings.some((finding) =>
     finding.code === "VERSION_DRIFT" && finding.artifact === "patrol"));
+  assert.ok(audit.findings.some((finding) =>
+    finding.code === "PORTFOLIO_ARTIFACT_MISSING"
+    && finding.entry === "civilization-provider-contracts"
+    && finding.artifact === "rooms"));
 });
 
 test("raid-safety matrix rejects placeholder scenarios and unowned blockers", () => {
@@ -96,7 +100,10 @@ test("raid-safety audit rejects missing runnable scenario references", async () 
     loadPortfolioManifest(),
   ]);
   const mutated = structuredClone(matrix);
-  mutated.foundations[0]!.scenarios = ["missing/scenario"];
+  mutated.foundations[0]!.scenarios = [{
+    id: "missing/scenario",
+    bindings: { coffer: "consumer", rooms: "rooms", kinship: "kinship" },
+  }];
   const audit = auditRaidSafetyMatrix(mutated, [], production, portfolio);
   assert.equal(audit.valid, false);
   assert.equal(audit.ready, false);
@@ -114,7 +121,11 @@ test("raid-safety release gate can become ready only with aligned inventory and 
   const futureMatrix = structuredClone(matrix);
   const futureProduction = structuredClone(production);
   const futurePortfolio = structuredClone(portfolio);
-  const realScenario = scenarios[0]!.scenario.id;
+  const releaseScenario = structuredClone(scenarios[0]!.scenario);
+  releaseScenario.id = "raid-safety/final-release";
+  releaseScenario.artifacts = Object.fromEntries(
+    futureMatrix.production.requiredArtifacts.map((artifact) => [artifact, { required: true }]),
+  );
 
   const patrol = futureProduction.mods.find((mod) => mod.id === "patrol")!;
   patrol.version = "0.4.0-alpha";
@@ -132,24 +143,34 @@ test("raid-safety release gate can become ready only with aligned inventory and 
     portfolioTarget: "parcels",
     obligations: ["released-jar raid-safety acceptance"],
   });
+  Object.assign(futurePortfolio.targets.find((target) => target.id === "coffer")!.artifacts!, {
+    rooms: { path: "rooms.jar" },
+    kinship: { path: "kinship.jar" },
+  });
   futurePortfolio.targets.push({
     id: "parcels",
     title: "Parcels",
     repository: "../parcels",
     testedVersion: "0.1.0",
     build: [{ name: "build", command: ["./gradlew", "check"] }],
-    scenarios: [realScenario],
+    artifacts: Object.fromEntries(
+      futureMatrix.production.requiredArtifacts.map((artifact) => [artifact, { path: `${artifact}.jar` }]),
+    ),
+    scenarios: [releaseScenario.id],
   });
   for (const entry of futureMatrix.acceptance) {
     entry.status = "executable";
-    entry.scenarios = [realScenario];
+    entry.scenarios = [{
+      id: releaseScenario.id,
+      bindings: Object.fromEntries(entry.artifacts.map((artifact) => [artifact, artifact])),
+    }];
     delete entry.blockers;
   }
 
   assert.deepEqual(validateRaidSafetyMatrix(futureMatrix), []);
   const audit = auditRaidSafetyMatrix(
     futureMatrix,
-    scenarios.map(({ scenario }) => scenario),
+    [...scenarios.map(({ scenario }) => scenario), releaseScenario],
     futureProduction,
     futurePortfolio,
   );

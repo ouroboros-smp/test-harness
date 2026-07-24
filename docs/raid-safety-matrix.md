@@ -7,7 +7,8 @@ final five-jar acceptance cases.
 
 This distinction is deliberate:
 
-- an `executable` entry names one or more maintained harness scenarios;
+- an `executable` entry names maintained harness scenarios and binds each
+  product id to the scenario's real packaged-jar artifact slot;
 - a `blocked` entry names no placeholder scenario and links every unmet
   contract to its owning GitHub issue;
 - the production gate compares all five required artifact ids with
@@ -43,8 +44,9 @@ node dist/cli.js raid-matrix --require-complete
 
 1. Kinship, Patrol, Rooms, Parcels, and Coffer all have production-manifest
    entries and matching portfolio-tested versions;
-2. every final entry has a real maintained scenario; and
-3. no upstream contract blocker remains.
+2. the owning portfolio targets supply every bound packaged-jar artifact slot;
+3. every final entry has a real maintained scenario; and
+4. no upstream contract blocker remains.
 
 Machine consumers can add `--json`. A different matrix file can be inspected
 with `--config`, but its production and portfolio paths remain safe

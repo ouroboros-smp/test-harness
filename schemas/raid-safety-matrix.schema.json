@@ -71,7 +71,7 @@
         "scenarios": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/scenarioReference" }
         },
         "proves": {
           "type": "array",
@@ -133,6 +133,19 @@
           }
         }
       ]
+    },
+    "scenarioReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "bindings"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "bindings": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
     }
   }
 }
