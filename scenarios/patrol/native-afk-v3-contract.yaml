@@ -250,6 +250,19 @@ steps:
     actions:
       - { type: wait.duration, milliseconds: 1100 }
       - { type: adapter.invoke, adapter: patrol, operation: projectile-hit, args: { attacker: PatrolOpponent, victim: PatrolAfk }, as: projectile-hit }
+      # Read the refreshed tag the same way the first-hit step does. A direct read raced the
+      # authoritative tag here and observed no participation at all, which reported only
+      # "got undefined"; polling reports the last observed role when it genuinely never arrives.
+      - type: wait.until
+        timeoutMs: 5000
+        intervalMs: 50
+        assertion:
+          type: adapter.assert
+          adapter: patrol
+          operation: combat-status
+          args: { player: PatrolAfk }
+          jsonPath: status.participationRole
+          expected: victim
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolAfk }, as: projectile-afk }
       - { type: adapter.invoke, adapter: patrol, operation: combat-status, args: { player: PatrolOpponent }, as: projectile-opponent }
     assertions:
