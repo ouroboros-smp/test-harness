@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { elapsedTimer, getJsonPath, interpolate, percentile } from "./utils.js";
+import { elapsedTimer, formatDuration, getJsonPath, interpolate, percentile } from "./utils.js";
 
 test("elapsed timers report non-negative, non-decreasing integer durations", async () => {
   const elapsed = elapsedTimer();
@@ -26,4 +26,22 @@ test("percentiles use nearest-rank ordering", () => {
   assert.equal(percentile([50, 10, 30, 20, 40], 0.5), 30);
   assert.equal(percentile([50, 10, 30, 20, 40], 0.99), 50);
   assert.equal(percentile([], 0.95), 0);
+});
+
+test("durations never round the seconds component up to sixty", () => {
+  // Regression: independent minute-floor and second-round rendered impossible "1m 60s" / "60.0s".
+  assert.equal(formatDuration(119_600), "2m 0s");
+  assert.equal(formatDuration(179_600), "3m 0s");
+  assert.equal(formatDuration(59_999), "1m 0s");
+  assert.equal(formatDuration(59_999, 2), "1m 0s");
+  assert.equal(formatDuration(60_000), "1m 0s");
+});
+
+test("durations preserve unit precision below the rollover boundary", () => {
+  assert.equal(formatDuration(500), "500ms");
+  assert.equal(formatDuration(5_432, 2), "5.43s");
+  assert.equal(formatDuration(5_432), "5.4s");
+  assert.equal(formatDuration(30_000), "30.0s");
+  assert.equal(formatDuration(61_250), "1m 1s");
+  assert.equal(formatDuration(90_000), "1m 30s");
 });
