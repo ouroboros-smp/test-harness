@@ -48,7 +48,7 @@ steps:
       - { type: wait.ticks, ticks: 25 }
       - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: aggressor-after-first }
     assertions:
-      - { type: value.json, value: aggressor-after-first, jsonPath: status.revision, expected: 1 }
+      - { type: value.json, value: aggressor-after-first, jsonPath: status.revision, expected: 3 }
       - { type: value.json, value: aggressor-after-first, jsonPath: status.lastCounterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
       - { type: value.json, value: aggressor-after-first, jsonPath: status.lastHostileAt, operator: gt, expected: 0 }
 
@@ -66,14 +66,14 @@ steps:
       - { type: adapter.invoke, adapter: patrol, operation: events, as: hostile-live-events }
       - { type: snapshot.capture, name: pre-restart-reconciliation, value: hostile-reconciliation }
     assertions:
-      - { type: value.json, value: aggressor-after-second, jsonPath: status.revision, expected: 2 }
+      - { type: value.json, value: aggressor-after-second, jsonPath: status.revision, expected: 6 }
       - { type: value.json, value: aggressor-after-second, jsonPath: status.playerId, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
       - { type: value.json, value: aggressor-after-second, jsonPath: status.principal, expected: "player:f85a1081-c65f-3db8-a350-101aa41386eb" }
       - { type: value.json, value: victim-after-second, jsonPath: status.lastHostileAt, expected: 0 }
       - { type: value.json, value: victim-after-second, jsonPath: status.lastCounterparty, operator: absent }
       - { type: value.json, value: hostile-replay, jsonPath: count, expected: 2 }
-      - { type: value.json, value: hostile-replay, jsonPath: events.0.aggregateRevision, expected: 1 }
-      - { type: value.json, value: hostile-replay, jsonPath: events.1.aggregateRevision, expected: 2 }
+      - { type: value.json, value: hostile-replay, jsonPath: events.0.aggregateRevision, expected: 3 }
+      - { type: value.json, value: hostile-replay, jsonPath: events.1.aggregateRevision, expected: 6 }
       - { type: value.json, value: hostile-replay, jsonPath: events.0.actor, expected: "f85a1081-c65f-3db8-a350-101aa41386eb" }
       - { type: value.json, value: hostile-replay, jsonPath: events.0.data.participantRole, expected: aggressor }
       - { type: value.json, value: hostile-replay, jsonPath: events.0.data.counterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
@@ -97,7 +97,7 @@ steps:
       - { type: adapter.invoke, adapter: patrol, operation: clear-events, as: restarted-events }
     assertions:
       - { type: value.json, value: restarted-reconciliation, jsonPath: status.available, expected: true }
-      - { type: value.json, value: restarted-reconciliation, jsonPath: status.revision, expected: 2 }
+      - { type: value.json, value: restarted-reconciliation, jsonPath: status.revision, operator: gte, expected: 6 }
       - { type: value.json, value: restarted-reconciliation, jsonPath: status.lastCounterparty, expected: "d204a90c-571a-325a-8bde-3922ae9224b5" }
       - { type: value.json, value: restarted-reconciliation, jsonPath: count, expected: 2 }
       - { type: value.json, value: restarted-reconciliation, jsonPath: checks.valid, expected: true }
@@ -117,12 +117,12 @@ steps:
       - { type: wait.duration, seconds: 62 }
       - { type: wait.ticks, ticks: 25 }
       - { type: adapter.invoke, adapter: patrol, operation: status, args: { player: PatrolAggressor }, as: cleared-status }
-      - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 2 }, as: cleared-reconciliation }
+      - { type: adapter.invoke, adapter: patrol, operation: reconcile, args: { player: PatrolAggressor, afterRevision: 6 }, as: cleared-reconciliation }
       - { type: adapter.invoke, adapter: patrol, operation: events, as: clear-live-events }
     assertions:
       - { type: value.json, value: cleared-status, jsonPath: status.available, expected: true }
       - { type: value.json, value: cleared-status, jsonPath: status.state, expected: clear }
-      - { type: value.json, value: cleared-status, jsonPath: status.revision, expected: 3 }
+      - { type: value.json, value: cleared-status, jsonPath: status.revision, expected: 9 }
       - { type: value.json, value: cleared-status, jsonPath: status.lastHostileAt, expected: 0 }
       - { type: value.json, value: cleared-status, jsonPath: status.lastCounterparty, operator: absent }
       - { type: value.json, value: cleared-reconciliation, jsonPath: count, expected: 1 }

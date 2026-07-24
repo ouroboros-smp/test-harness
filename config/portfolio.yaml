@@ -127,6 +127,7 @@ targets:
     scenarios:
       - patrol/runtime-acceptance
       - patrol/conflict-v2-contract
+      - patrol/combat-tag-v3-contract
 
   - id: rooms
     title: Rooms and Structures
