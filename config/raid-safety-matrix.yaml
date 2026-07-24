@@ -1,0 +1,228 @@
+schemaVersion: 1
+title: Ouroboros raid-safety released-jar acceptance matrix
+issue: https://github.com/ouroboros-smp/test-harness/issues/52
+
+production:
+  manifest: config/production-manifest.yaml
+  portfolio: config/portfolio.yaml
+  requiredArtifacts: [kinship, patrol, rooms, parcels, coffer]
+
+# Foundations are executable against merged code. They are reusable evidence,
+# not substitutes for the final five-jar cases below.
+foundations:
+  - id: civilization-provider-contracts
+    title: Packaged Kinship, Rooms, and Coffer provider failure and restart contracts
+    status: executable
+    artifacts: [kinship, rooms, coffer]
+    scenarios: [coffer/civilization-stack]
+    proves:
+      - Packaged Kinship and Rooms providers compose with Coffer.
+      - Missing, malformed, stale, and throwing providers fail closed.
+      - Continuity state survives restart and bounded retry.
+    limitations:
+      - Parcels and Patrol are absent.
+      - This does not prove defender presence, combat tags, or offline-protection timing.
+
+  - id: patrol-conflict-contract
+    title: Packaged Patrol conflict-v2 attribution and lifecycle foundation
+    status: executable
+    artifacts: [patrol]
+    scenarios: [patrol/conflict-v2-contract]
+    proves:
+      - Packaged Patrol publishes bounded, availability-aware conflict-v2 facts.
+      - Attribution, replay, stale-state, close, reload, persistence, and restart behavior are deterministic.
+    limitations:
+      - Conflict-v2 is not the symmetric participant combat-tag contract required by Patrol issue 37.
+
+  - id: rooms-exact-containment
+    title: Packaged Rooms exact containment and persistence foundation
+    status: executable
+    artifacts: [rooms]
+    scenarios: [rooms/runtime-acceptance]
+    proves:
+      - Exact room containment, discovery, diagnostics, persistence, reload, and restart are executable.
+    limitations:
+      - The inferred hallway-versus-tunnel hull is not implemented or published.
+
+  - id: coffer-lock-pop
+    title: Packaged Coffer one-hit lock splintering foundation
+    status: executable
+    artifacts: [coffer]
+    scenarios: [coffer/lock-breaking]
+    proves:
+      - Unauthorized first attacks atomically clear single and double-container locks.
+      - Authorized attacks and later attacks hand off to downstream durability and vanilla destruction.
+      - Common Protection denial preserves locks and consumes the attack.
+    limitations:
+      - The protection provider is deterministic harness code, not the packaged Parcels and Rooms stack.
+
+# Blocked entries intentionally have no scenario id. A scenario becomes
+# runnable only when its owning product contract and packaged artifact exist.
+acceptance:
+  - id: combat-tag-participants
+    title: Tag both combat participants before damage resolves
+    status: blocked
+    artifacts: [patrol, parcels]
+    scenarios: []
+    proves:
+      - Attacker and victim receive durable authoritative deadlines before AFK eligibility is evaluated.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/patrol/issues/37
+        reason: Patrol has not published the symmetric durable participant-tag lifecycle.
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Parcels has not implemented defender-aware consumption of authoritative tag deadlines.
+
+  - id: manual-afk
+    title: Manual AFK cannot evade or indefinitely retain raid state
+    status: blocked
+    artifacts: [patrol, parcels]
+    scenarios: []
+    proves:
+      - Manual AFK transition obeys the accepted presence and combat-tag ordering.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/patrol/issues/37
+        reason: Pre-damage AFK revocation and the published participant-tag contract are not implemented.
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Defender presence and absence epochs are not implemented.
+
+  - id: idle-afk
+    title: Idle AFK starts absence only from authoritative state
+    status: blocked
+    artifacts: [patrol, parcels]
+    scenarios: []
+    proves:
+      - Idle AFK uses the same durable absence and revalidation rules as manual AFK.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/patrol/issues/37
+        reason: Patrol AFK and combat participation ordering remains an implementation prerequisite.
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Parcels absence epochs and provider freshness checks are not implemented.
+
+  - id: tagged-logout
+    title: Tagged logout arms protection only at the later authoritative deadline
+    status: blocked
+    artifacts: [kinship, patrol, parcels]
+    scenarios: []
+    proves:
+      - Shorter and longer combat tags compose deterministically with the offline-protection delay.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/patrol/issues/37
+        reason: Durable taggedUntil, disconnect, death, and restart semantics are not published in code.
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Tagged-logout absence epochs and deadline persistence are not implemented.
+
+  - id: defender-reconnect
+    title: Defender reconnect synchronously cancels pending and armed protection
+    status: blocked
+    artifacts: [kinship, patrol, parcels]
+    scenarios: []
+    proves:
+      - Direct owners, residents, and verified Kinship defenders disarm before their next world action.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Defender-set revisions, presence reconciliation, and reconnect cancellation are not implemented.
+
+  - id: inferred-hallways
+    title: Inferred structure hull includes accepted hallway circulation space
+    status: blocked
+    artifacts: [rooms, parcels]
+    scenarios: []
+    proves:
+      - The accepted bounded hull includes representative straight, L-shaped, multi-level, attic, and courtyard layouts.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/96
+        reason: The domain owner has not accepted the proposed inferred-hull rule.
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
+        reason: No production inferred-hull contract or persisted implementation exists.
+
+  - id: tunnel-exclusion
+    title: Inferred structure hull excludes dangling, wide, loop, and underground tunnels
+    status: blocked
+    artifacts: [rooms, parcels]
+    scenarios: []
+    proves:
+      - Hallway inclusion does not permit arbitrary underground claim extension.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/96
+        reason: The hallway-versus-tunnel policy is still proposed.
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
+        reason: Parcels cannot consume a production revisioned inferred hull yet.
+
+  - id: lock-pop
+    title: Parcels denial precedes Coffer lock pop and Rooms storage durability
+    status: blocked
+    artifacts: [rooms, parcels, coffer]
+    scenarios: []
+    proves:
+      - Protected raids preserve the lock and storage HP while allowed first hits pop only the lock.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/test-harness/issues/47
+        reason: The packaged Parcels, Rooms, and Coffer boundary scenario does not exist.
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Defender-aware protection decisions are not implemented.
+
+  - id: storage-hp-handoff
+    title: Allowed attacks hand off from Coffer to Rooms storage HP exactly once
+    status: blocked
+    artifacts: [rooms, parcels, coffer]
+    scenarios: []
+    proves:
+      - Parcels never grants Coffer access and denied attacks never consume Rooms storage HP.
+      - Allowed post-lock attacks consume deterministic storage HP before vanilla destruction.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/test-harness/issues/47
+        reason: Packaged three-mod ordering and damage accounting are not executable.
+
+  - id: explosions
+    title: Explosion protection follows armed raid state and bounded structure geometry
+    status: blocked
+    artifacts: [rooms, parcels, coffer]
+    scenarios: []
+    proves:
+      - Protected geometry survives explosions and raidable geometry follows the documented downstream behavior.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Offline-protection explosion behavior is not implemented.
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
+        reason: Final inferred geometry is unavailable to Parcels.
+
+  - id: restart-persistence
+    title: Raid state and geometry remain deterministic across clean restart and recovery
+    status: blocked
+    artifacts: [kinship, patrol, rooms, parcels, coffer]
+    scenarios: []
+    proves:
+      - Tags, absence epochs, defender revisions, hull revisions, protection state, locks, and storage HP recover consistently.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/patrol/issues/37
+        reason: Participant-tag restart semantics are not implemented.
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
+        reason: Inferred-hull persistence and revision fencing are not implemented.
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Absence-epoch restart and crash recovery are not implemented.
+
+  - id: disabled-default-rollout
+    title: New raid-safety behavior remains disabled until explicitly enabled
+    status: blocked
+    artifacts: [patrol, rooms, parcels, coffer]
+    scenarios: []
+    proves:
+      - Upgrading released jars without opting in preserves the previous production behavior.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: The final configuration migration and rollout default do not exist.
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
+        reason: The inferred-hull feature flag and migration contract do not exist.
+
+  - id: rollback
+    title: Rollback preserves durable data and restores the prior behavior
+    status: blocked
+    artifacts: [patrol, rooms, parcels, coffer]
+    scenarios: []
+    proves:
+      - Disabling the rollout after activation does not corrupt claims, geometry, tags, locks, or storage durability.
+    blockers:
+      - issue: https://github.com/ouroboros-smp/parcels/issues/5
+        reason: Configuration migration and backward-safe durable state are not implemented.
+      - issue: https://github.com/ouroboros-smp/rooms-and-structures/issues/97
+        reason: Rule-versioned hull persistence and rollback behavior are not implemented.

@@ -56,6 +56,15 @@ composition point with a deterministic harness provider and verifies the Coffer
 and vanilla handoff; it does not substitute for #47's packaged Parcels and Rooms
 stack.
 
+Issue [#52](https://github.com/ouroboros-smp/test-harness/issues/52) is tracked
+by the machine-readable `config/raid-safety-matrix.yaml`, not by a placeholder
+scenario. The matrix links each blocked final case to Patrol #37, Rooms
+#96/#97, Parcels #5, or harness #47 and rejects scenario ids on blocked cases.
+Its executable foundations reference only maintained scenarios that run
+against merged jars. Run `node dist/cli.js raid-matrix --require-complete` for
+the strict production-version release gate. Issue #52 remains outside
+`TRACKED_ISSUES` until every final five-jar case is executable and green.
+
 Issue [#46](https://github.com/ouroboros-smp/test-harness/issues/46) is not
 ready to close. `coffer/civilization-stack` now proves independent Rooms
 resident and Kinship grants; missing, malformed, throwing, and stale provider

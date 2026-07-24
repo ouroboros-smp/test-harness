@@ -266,3 +266,51 @@ export interface ProductionManifestAudit {
   thirdPartyMods: number;
   findings: ProductionManifestFinding[];
 }
+
+export interface RaidSafetyBlocker {
+  issue: string;
+  reason: string;
+}
+
+export interface RaidSafetyMatrixEntry {
+  id: string;
+  title: string;
+  status: "executable" | "blocked";
+  artifacts: string[];
+  scenarios: string[];
+  proves: string[];
+  limitations?: string[];
+  blockers?: RaidSafetyBlocker[];
+}
+
+export interface RaidSafetyMatrix {
+  schemaVersion: 1;
+  title: string;
+  issue: string;
+  production: {
+    manifest: string;
+    portfolio: string;
+    requiredArtifacts: string[];
+  };
+  foundations: RaidSafetyMatrixEntry[];
+  acceptance: RaidSafetyMatrixEntry[];
+}
+
+export interface RaidSafetyMatrixFinding {
+  severity: "error" | "blocker";
+  code: string;
+  message: string;
+  entry?: string;
+  artifact?: string;
+}
+
+export interface RaidSafetyMatrixAudit {
+  valid: boolean;
+  ready: boolean;
+  title: string;
+  executableFoundations: number;
+  executableAcceptance: number;
+  acceptanceCases: number;
+  blockedCases: string[];
+  findings: RaidSafetyMatrixFinding[];
+}
