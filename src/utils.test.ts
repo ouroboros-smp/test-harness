@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getJsonPath, interpolate, percentile } from "./utils.js";
+import { elapsedTimer, getJsonPath, interpolate, percentile } from "./utils.js";
+
+test("elapsed timers report non-negative, non-decreasing integer durations", async () => {
+  const elapsed = elapsedTimer();
+  const first = elapsed();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = elapsed();
+  assert.ok(Number.isInteger(first) && first >= 0);
+  assert.ok(Number.isInteger(second) && second >= first);
+});
 
 test("interpolation preserves typed exact variables and replaces embedded values", () => {
   const values = { port: 25565, name: "Alice" };
