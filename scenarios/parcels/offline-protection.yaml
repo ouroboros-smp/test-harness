@@ -78,11 +78,22 @@ steps:
       - type: wait.until
         assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: true }
       - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: armed-offline }
+      - { type: console.command, command: "item replace entity ParcelRaider hotbar.0 with minecraft:glass 1" }
+      - { type: client.select_hotbar, client: raider, slot: 0 }
+      - { type: console.command, command: "setblock 0 64 0 minecraft:air" }
+      - { type: client.place_block, client: raider, x: 0, y: 63, z: 0, expectChange: false }
+      - { type: bridge.request, method: GET, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", as: denied-placement }
+      - { type: console.command, command: "setblock 0 64 0 minecraft:glass" }
+      - { type: console.command, command: "summon minecraft:tnt 0.5 64 0.5 {fuse:0}" }
+      - { type: wait.ticks, ticks: 10 }
+      - { type: bridge.request, method: GET, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", as: denied-explosion }
       - { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT all_absent_at, protection_eligible_at, arm_at, armed FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000501"], as: armed-row }
       - { type: snapshot.capture, name: armed-deadlines, value: armed-row }
     assertions:
       - { type: value.json, value: armed-offline, jsonPath: break, expected: false }
       - { type: value.json, value: armed-offline, jsonPath: explosion, expected: false }
+      - { type: value.json, value: denied-placement, jsonPath: block, expected: minecraft:air }
+      - { type: value.json, value: denied-explosion, jsonPath: block, expected: minecraft:glass }
       - { type: value.json, value: armed-row, jsonPath: "0.armed", expected: 1 }
 
   - id: reconnect
@@ -93,6 +104,12 @@ steps:
         assertion: { type: adapter.assert, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, jsonPath: bound, expected: false }
       - { type: adapter.invoke, adapter: parcels, operation: protection, args: { x: 0, y: 64, z: 0, player: ParcelRaider }, as: owner-online }
       - { type: client.break_block, client: raider, x: 0, y: 64, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: minecraft:air }
+      - { type: client.place_block, client: raider, x: 0, y: 63, z: 0 }
+      - type: wait.until
+        assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: minecraft:glass }
+      - { type: console.command, command: "summon minecraft:tnt 0.5 64 0.5 {fuse:0}" }
       - type: wait.until
         assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=0&y=64&z=0", jsonPath: block, expected: minecraft:air }
     assertions:
