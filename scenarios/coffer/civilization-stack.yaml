@@ -378,6 +378,7 @@ steps:
       - type: wait.until
         assertion: { type: client.window, client: member, operator: absent }
       - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - { type: wait.ticks, ticks: 2 }
       - type: wait.until
         assertion: { type: adapter.assert, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, jsonPath: allowed, expected: false }
       - type: wait.until
@@ -415,12 +416,17 @@ steps:
       - type: wait.until
         assertion: { type: value.json, value: continuity-after-personal, jsonPath: lock.owner, expected: "${continuity-personal-owner}" }
       - { type: adapter.invoke, adapter: coffer, operation: set-flag, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, flag: hoppers, value: true }, as: continuity-later-mutation }
+      - type: wait.until
+        timeoutMs: 30000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, jsonPath: revision, operator: gt, expected: "${continuity-revision}" }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-mutation-registry }
       - { type: value.extract, value: continuity-after-mutation-registry, jsonPath: revision, as: continuity-mutated-revision }
       - { type: bridge.request, method: POST, path: /v1/command, body: { command: "execute at CivHead run tp CivMember ~41 ~ ~-2 0 0" } }
       - type: wait.until
         assertion: { type: client.window, client: member, operator: absent }
       - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - { type: wait.ticks, ticks: 2 }
       - type: wait.until
         assertion: { type: adapter.assert, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, jsonPath: allowed, expected: false }
       - type: wait.until
@@ -454,6 +460,10 @@ steps:
         assertion: { type: command.output, value: continuity-frozen-data-phase-one-after-restart, operator: not_contains, expected: "minecraft:lapis_lazuli" }
       - type: wait.until
         assertion: { type: command.output, value: continuity-frozen-data-phase-one-after-restart, operator: not_contains, expected: "phase-one-restart-attack" }
+      - type: wait.until
+        timeoutMs: 30000
+        intervalMs: 250
+        assertion: { type: adapter.assert, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, jsonPath: lock.flagOverrides.hoppers, expected: true }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-phase-one-retry }
       - type: wait.until
         timeoutMs: 30000
@@ -471,6 +481,7 @@ steps:
       - type: wait.until
         assertion: { type: client.window, client: member, operator: absent }
       - { type: client.use_block, client: member, relativeTo: CivHead, x: 41, y: 0, z: 0 }
+      - { type: wait.ticks, ticks: 2 }
       - type: wait.until
         assertion: { type: adapter.assert, adapter: coffer, operation: can-open, args: { relativeTo: CivHead, x: 41, y: 0, z: 0, player: CivMember }, jsonPath: allowed, expected: false }
       - type: wait.until
@@ -488,6 +499,10 @@ steps:
         timeoutMs: 30000
         intervalMs: 250
         assertion: { type: adapter.assert, adapter: coffer, operation: inspect-registry, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, jsonPath: revision, expected: "${continuity-post-retry-revision}" }
+      - { type: console.command, command: "execute at CivHead run data merge block ~41 ~ ~ {CustomName:'{\"text\":\"post-unfreeze-control\"}'}" }
+      - { type: console.command, command: "execute at CivHead run data get block ~41 ~ ~", as: continuity-data-positive-control }
+      - type: wait.until
+        assertion: { type: command.output, value: continuity-data-positive-control, operator: contains, expected: "post-unfreeze-control" }
       - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_restore_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-complete }
       - { type: sqlite.query, path: config/rooms/rooms.db, sql: "SELECT COUNT(*) AS count FROM continuity_publication_outbox WHERE structure_id = ?", parameters: ["${structure-id}"], as: continuity-publication-complete }
       - { type: adapter.invoke, adapter: coffer, operation: inspect-pair, args: { relativeTo: CivHead, x: 41, y: 0, z: 0 }, as: continuity-after-ack }
