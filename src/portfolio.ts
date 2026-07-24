@@ -16,7 +16,7 @@ import type {
   PortfolioTargetResult,
   RunOptions,
 } from "./types.js";
-import { ensureDirectory, interpolate } from "./utils.js";
+import { elapsedTimer, ensureDirectory, interpolate } from "./utils.js";
 
 export interface PortfolioRunOptions {
   config?: string;
@@ -151,11 +151,12 @@ function unresolvedVariables(value: JsonValue): string[] {
 export async function runPortfolio(options: PortfolioRunOptions): Promise<PortfolioReport> {
   const manifest = await loadPortfolioManifest(options.config, options.variables);
   const started = Date.now();
+  const elapsed = elapsedTimer();
   const output = await ensureDirectory(options.output ?? join(repositoryRoot(), "artifacts", `portfolio-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`));
   const cache = options.cache ? resolve(options.cache) : undefined;
   const targets: PortfolioTargetResult[] = [];
   for (const target of manifest.targets) {
-    const targetStarted = Date.now();
+    const targetElapsed = elapsedTimer();
     const targetDirectory = await ensureDirectory(join(output, safeSegment(target.id)));
     const repository = isAbsolute(target.repository) ? resolve(target.repository) : resolve(repositoryRoot(), target.repository);
     const builds: PortfolioBuildResult[] = [];
@@ -200,7 +201,7 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
         scenarios.push({ id: reference, title: reference, status: "skipped", durationMs: 0, issues: [], error: "Skipped because the target build failed" });
         continue;
       }
-      const scenarioStarted = Date.now();
+      const scenarioElapsed = elapsedTimer();
       try {
         const { scenario: loaded } = await resolveScenario(reference);
         const scenario = structuredClone(loaded);
@@ -237,7 +238,7 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
           id: reference,
           title: reference,
           status: "failed",
-          durationMs: Date.now() - scenarioStarted,
+          durationMs: scenarioElapsed(),
           issues: [],
           error: errorMessage(error),
         });
@@ -250,7 +251,7 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
       title: target.title,
       repository,
       status: targetFailed ? "failed" : "passed",
-      durationMs: Date.now() - targetStarted,
+      durationMs: targetElapsed(),
       builds,
       scenarios,
     });
@@ -262,7 +263,7 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
     status: targets.every((target) => target.status === "passed") ? "passed" : "failed",
     startedAt: new Date(started).toISOString(),
     finishedAt: new Date(finished).toISOString(),
-    durationMs: finished - started,
+    durationMs: elapsed(),
     targets,
     artifacts: {},
   };
@@ -272,6 +273,7 @@ export async function runPortfolio(options: PortfolioRunOptions): Promise<Portfo
 
 async function runBuild(command: PortfolioCommandSpec, cwd: string, log: string, verbose: boolean): Promise<PortfolioBuildResult> {
   const started = Date.now();
+  const elapsed = elapsedTimer();
   const startedAt = new Date(started).toISOString();
   console.log(`BUILD ${command.name} · ${cwd}`);
   const [program, ...args] = command.command;
@@ -316,7 +318,7 @@ async function runBuild(command: PortfolioCommandSpec, cwd: string, log: string,
     status: failure ? "failed" : "passed",
     startedAt,
     finishedAt: new Date(finished).toISOString(),
-    durationMs: finished - started,
+    durationMs: elapsed(),
     log,
     ...(failure ? { error: failure } : {}),
   };
