@@ -247,6 +247,8 @@ steps:
       - { type: client.connect, client: owner }
       - type: wait.until
         assertion: { type: sqlite.query, path: config/parcels/parcels.db, sql: "SELECT COUNT(*) AS count FROM claim_offline_protection WHERE structure_id = ?", parameters: ["00000000-0000-0000-0000-000000000601"], jsonPath: "0.count", expected: 0 }
+      - { type: console.command, command: "tp ParcelRaider 4 65 2" }
+      - { type: wait.ticks, ticks: 5 }
       - { type: client.break_block, client: raider, x: 4, y: 64, z: 4 }
       - type: wait.until
         assertion: { type: bridge.json, path: "/v1/world/block?dimension=minecraft%3Aoverworld&x=4&y=64&z=4", jsonPath: block, expected: minecraft:air }
