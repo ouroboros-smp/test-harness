@@ -147,6 +147,7 @@ targets:
       - patrol/runtime-acceptance
       - patrol/conflict-v2-contract
       - patrol/combat-tag-v3-contract
+      - patrol/native-afk-v3-contract
 
   - id: parcels
     title: Parcels

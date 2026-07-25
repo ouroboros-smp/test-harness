@@ -323,6 +323,34 @@ class PatrolConflictV2ClientTest {
         }
     }
 
+    @Test
+    void combatV3AcceptsOnlyTheCompleteMonotonicAfkExtensionPair() {
+        for (boolean afk : List.of(false, true)) {
+            Map<String, Object> value = combatStatus(
+                    AGGRESSOR, "attacker", VICTIM, 1_000L, 31_000L, 1L);
+            value.put("afk", afk);
+            value.put("afkRevision", 7L);
+            PatrolConflictV2Client accepted = PatrolConflictV2Client.combatV3(
+                    () -> combatProtocol(value, List.of(), new AtomicReference<>()));
+            assertFalse(accepted.status(AGGRESSOR).has("error"));
+        }
+
+        for (Map<String, Object> invalid : List.<Map<String, Object>>of(
+                Map.of("afk", true),
+                Map.of("afkRevision", 1L),
+                Map.of("afk", "yes", "afkRevision", 1L),
+                Map.of("afk", true, "afkRevision", -1L),
+                Map.of("afk", true, "afkRevision", 1.5))) {
+            Map<String, Object> value = combatStatus(
+                    AGGRESSOR, "attacker", VICTIM, 1_000L, 31_000L, 1L);
+            value.putAll(invalid);
+            PatrolConflictV2Client rejected = PatrolConflictV2Client.combatV3(
+                    () -> combatProtocol(value, List.of(), new AtomicReference<>()));
+            assertEquals("invalid_status",
+                    rejected.status(AGGRESSOR).get("error").getAsString());
+        }
+    }
+
     private static Map<String, Object> protocol(
             Map<String, Object> status,
             List<Map<String, Object>> replay,

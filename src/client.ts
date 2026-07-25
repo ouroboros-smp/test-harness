@@ -32,6 +32,12 @@ export function clientExecutable(): string {
     ?? join(repositoryRoot(), "client", "target", "debug", process.platform === "win32" ? "ouro-harness-client.exe" : "ouro-harness-client");
 }
 
+export function connectionStateAfterEvent(current: boolean, eventType: string): boolean {
+  if (eventType === "spawn") return true;
+  if (eventType === "end") return false;
+  return current;
+}
+
 export class ProtocolClient {
   private child: ChildProcessWithoutNullStreams | undefined;
   private isConnected = false;
@@ -210,12 +216,13 @@ export class ProtocolClient {
     }
     if (message.kind === "event" && message.type) {
       this.record(message.type, message.data ?? {});
+      const wasConnected = this.isConnected;
+      this.isConnected = connectionStateAfterEvent(this.isConnected, message.type);
       if (message.type === "spawn") {
-        this.isConnected = true;
         resolveSpawn();
       } else if (message.type === "error" && !this.isConnected) {
         rejectSpawn(new HarnessError("CLIENT_CONNECTION_FAILED", `${this.spec.name}: ${JSON.stringify(message.data)}`));
-      } else if (message.type === "end" && !this.isConnected) {
+      } else if (message.type === "end" && !wasConnected) {
         rejectSpawn(new HarnessError("CLIENT_CONNECTION_REJECTED", `${this.spec.name}: ${JSON.stringify(message.data)}`));
       }
       return;

@@ -405,6 +405,16 @@ public final class PatrolConflictV2Client implements AutoCloseable {
     }
 
     private static void validateCombatStatus(Map<String, Object> status, String code) {
+        boolean hasAfk = status.containsKey("afk");
+        boolean hasAfkRevision = status.containsKey("afkRevision");
+        if (hasAfk != hasAfkRevision) {
+            throw new ContractFailure(true, code,
+                    "afk and afkRevision must be present together");
+        }
+        if (hasAfk) {
+            requiredBoolean(status, "afk", code);
+            nonNegativeLong(status, "afkRevision", code);
+        }
         long participatedAt = nonNegativeLong(status, "lastParticipationAt", code);
         long taggedUntil = nonNegativeLong(status, "taggedUntil", code);
         boolean hasRole = status.get("participationRole") != null;
