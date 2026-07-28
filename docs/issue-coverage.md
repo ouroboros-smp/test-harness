@@ -26,13 +26,14 @@ harness-only bridge on 2026-07-18.
 | #33 | Deterministic generated-terrain fixtures for containers, rooms, and entity spawning | `coffer/runtime-acceptance`, `rooms/runtime-acceptance`, `patrol/runtime-acceptance` |
 | #34 | Server-tick synchronization for repeated KeepGear death/respawn cases | `keepgear/acceptance` |
 | #36 | Authoritative server-position anchoring for cross-player block actions | `coffer/runtime-acceptance` |
+| #39 | Rooms multiroom formation → Parcels claim registration → Ouro Admin UI wire and render planning | `civilization/multiroom-structure-parcel-ui` |
 | #42 | Wait for MariaDB's final port-3306 server rather than its temporary initialization server | `mehen/governance-acceptance` |
 
 Open issue [#39](https://github.com/ouroboros-smp/test-harness/issues/39)
-tracks behavioral production-stack interoperability. Its generated
-`portfolio/full-manifest-compatibility` foundation proves the exact loader
-inventory, real-client join, and restart, but does not close the issue until the
-domain interactions listed there are executable.
+continues to track the remaining behavioral production-stack combinations.
+`civilization/multiroom-structure-parcel-ui` now covers the Rooms → Parcels →
+admin UI path, while generated `portfolio/full-manifest-compatibility` covers
+exact loader inventory, real-client join, and restart.
 
 `node dist/cli.js validate --require-all-issues` fails if any tracked issue
 loses scenario coverage. Unit tests enforce the same invariant, and a separate

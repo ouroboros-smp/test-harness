@@ -8,6 +8,8 @@ variables:
   mehenRepository: ../mehen
   ourometricsRepository: ../ouro-metrics
   patrolRepository: ../Patrol
+  parcelsRepository: ../parcels
+  adminUiRepository: ../ouro-admin-ui
   roomsRepository: ../rooms-and-structures
   watershedRepository: ../watershed
   wildanimalbalancerRepository: ../WildAnimalBalancer
@@ -121,6 +123,46 @@ targets:
     artifacts:
       consumer: { path: platform/fabric/build/libs/rooms-fabric-0.3.1.jar }
     scenarios: [rooms/runtime-acceptance]
+
+  - id: civilization-interop
+    title: Rooms, Parcels, and Ouro Admin UI interoperability
+    repository: "${roomsRepository}"
+    testedVersion: rooms-0.3.3_parcels-0.1.2_ui-0.1.0
+    build:
+      - name: Rooms 0.3.3 packaged build and tests
+        command: ["${platform.gradleWrapper}", clean, build]
+        java: 25
+        timeoutMinutes: 30
+      - name: Parcels 0.1.2 packaged build and tests
+        command: ["${platform.gradleWrapper}", -p, "${parcelsRepository}", clean, build]
+        java: 25
+        timeoutMinutes: 30
+      - name: Ouro Admin UI build and packaged producer contract
+        command:
+          - "${platform.gradleWrapper}"
+          - -p
+          - "${adminUiRepository}"
+          - clean
+          - build
+          - interopTest
+          - "-Prooms_jar=${roomsRepository}/platform/fabric/build/libs/rooms-fabric-0.3.3.jar"
+          - "-Pparcels_jar=${parcelsRepository}/fabric/build/libs/parcels-0.1.2.jar"
+        java: 25
+        timeoutMinutes: 30
+      - name: Civilization public-protocol harness adapter
+        base: harness
+        command: ["${platform.gradleWrapper}", :adapters:civilization:clean, :adapters:civilization:build]
+        java: 25
+        timeoutMinutes: 15
+    artifacts:
+      rooms: { path: platform/fabric/build/libs/rooms-fabric-0.3.3.jar }
+      parcels: { path: "${parcelsRepository}/fabric/build/libs/parcels-0.1.2.jar" }
+      admin_ui: { path: "${adminUiRepository}/build/libs/ouro-admin-ui-0.1.0.jar" }
+      civilization_adapter:
+        { path: adapters/civilization/build/libs/ouro-harness-civilization-adapter-1.0.0.jar, base: harness }
+    variables:
+      adminUiRepository: "${adminUiRepository}"
+    scenarios: [civilization/multiroom-structure-parcel-ui]
 
   - id: watershed
     title: Watershed

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ouro_harness_civilization_adapter",
+  "version": "${version}",
+  "name": "Ouroboros Harness Civilization Adapter",
+  "description": "Harness-only observer for Rooms and Parcels public interoperability protocols.",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.ouroboros.harness.adapter.civilization.CivilizationHarnessAdapterMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "ouro_harness_bridge": "*",
+    "rooms": "*",
+    "parcels": "*"
+  }
+}

@@ -1,0 +1,204 @@
+schemaVersion: 1
+id: civilization/multiroom-structure-parcel-ui
+title: Automatic multiroom structure, parcel, and admin UI interoperability
+description: >
+  Builds two connected rooms around a real player, attributes both entrances through protocol
+  placement, and verifies automatic structure formation, matching parcel registration, production
+  hull publication, restart persistence, and packaged producer-to-UI wire/render compatibility.
+issues: [39]
+tags: [fabric, minecraft-26.2, rooms, structures, parcels, admin-ui, real-client, objectshare, restart]
+artifacts:
+  rooms: { required: true, description: Packaged Rooms 0.3.3 server jar }
+  parcels: { required: true, description: Packaged Parcels 0.1.2 server jar }
+  admin_ui:
+    { required: true, destination: none, description: Packaged Ouro Admin UI client jar }
+  civilization_adapter:
+    { required: true, description: Harness-only public ObjectShare observer }
+variables:
+  adminUiRepository: ../ouro-admin-ui
+clients:
+  - { name: builder, username: InteropBuilder }
+server:
+  memoryMb: 2048
+  startupTimeoutSeconds: 360
+  reuseWorldOnRestart: true
+steps:
+  - id: configure
+    name: Make two attributed doors decisive for the command-built test shell
+    actions:
+      - type: file.write
+        path: config/rooms/config.yml
+        content: |
+          attribution:
+            decisive-share: 0.50
+            minimum-blocks: 2
+            door-weight: 500
+
+  - id: ui_contract
+    name: Exercise the packaged producer codecs through the real UI state and geometry planners
+    timeoutSeconds: 600
+    actions:
+      - type: process.exec
+        command:
+          - "${platform.gradleWrapper}"
+          - interopTest
+          - "-Prooms_jar=${artifact.rooms}"
+          - "-Pparcels_jar=${artifact.parcels}"
+          - --console=plain
+        cwd: "${adminUiRepository}"
+        java: 25
+        timeoutMs: 600000
+        as: ui-interop-output
+    assertions:
+      - { type: command.output, value: ui-interop-output, operator: contains, expected: "BUILD SUCCESSFUL" }
+
+  - id: start
+    name: Start packaged Rooms and Parcels with a real builder client
+    actions:
+      - { type: server.start }
+      - { type: console.command, command: "op InteropBuilder" }
+      - { type: bridge.request, method: GET, path: /v1/mods, as: loaded-mods }
+    assertions:
+      - { type: value.json, value: loaded-mods, jsonPath: rooms.id, expected: rooms }
+      - { type: value.json, value: loaded-mods, jsonPath: parcels.id, expected: parcels }
+      - type: value.json
+        value: loaded-mods
+        jsonPath: ouro_harness_civilization_adapter.id
+        expected: ouro_harness_civilization_adapter
+      - { type: file.exists, path: config/rooms/rooms.db }
+      - { type: file.exists, path: config/parcels/parcels.db }
+
+  - id: fixture
+    name: Build two connected rooms and place both decisive exterior doors with the real client
+    timeoutSeconds: 120
+    actions:
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-10 ~-2 ~-10 ~10 ~8 ~10 minecraft:air" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-6 ~-1 ~-3 ~6 ~-1 ~3 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-6 ~4 ~-3 ~6 ~4 ~3 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-6 ~ ~-3 ~-6 ~3 ~3 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~6 ~ ~-3 ~6 ~3 ~3 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-5 ~ ~-3 ~5 ~3 ~-3 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-5 ~ ~3 ~5 ~3 ~3 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~ ~ ~-2 ~ ~3 ~2 minecraft:stone" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~-3 ~ ~3 ~-3 ~1 ~3 minecraft:air" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~3 ~ ~3 ~3 ~1 ~3 minecraft:air" }
+      - { type: console.command, command: "give InteropBuilder minecraft:oak_door 2" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run tp InteropBuilder ~-3 ~ ~" }
+      - { type: wait.duration, seconds: 1 }
+      - { type: client.select_hotbar, client: builder, slot: 0 }
+      - { type: client.look, client: builder, yaw: 0, pitch: 0 }
+      - { type: client.place_block, client: builder, relative: true, x: 0, y: -1, z: 3 }
+      - { type: wait.duration, seconds: 6 }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run tp InteropBuilder ~6 ~ ~" }
+      - { type: wait.duration, seconds: 1 }
+      - { type: client.select_hotbar, client: builder, slot: 0 }
+      - { type: client.look, client: builder, yaw: 0, pitch: 0 }
+      - { type: client.place_block, client: builder, relative: true, x: 0, y: -1, z: 3 }
+      - { type: wait.duration, seconds: 6 }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run tp InteropBuilder ~-6 ~ ~" }
+      - { type: wait.duration, seconds: 15 }
+      - type: sqlite.query
+        path: config/rooms/rooms.db
+        sql: "SELECT COUNT(*) AS count FROM rooms"
+        as: rooms-before-connection
+      - { type: adapter.invoke, adapter: civilization, operation: inspect, as: sealed-state }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run fill ~3 ~ ~-1 ~3 ~2 ~ minecraft:air" }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run tp InteropBuilder ~6 ~ ~" }
+      - { type: wait.duration, seconds: 3 }
+      - type: bridge.request
+        method: POST
+        path: /v1/command
+        body: { command: "execute at InteropBuilder run tp InteropBuilder ~-6 ~ ~" }
+      - { type: wait.duration, seconds: 30 }
+      - { type: adapter.invoke, adapter: civilization, operation: inspect, as: formed-state }
+    assertions:
+      - type: value.json
+        value: rooms-before-connection
+        jsonPath: "0.count"
+        operator: gte
+        expected: 2
+      - { type: value.json, value: sealed-state, jsonPath: structureCount, operator: gte, expected: 1 }
+      - { type: value.json, value: sealed-state, jsonPath: claimCount, operator: gte, expected: 1 }
+      - { type: value.json, value: sealed-state, jsonPath: multiroomStructureCount, operator: gte, expected: 1 }
+      - { type: value.json, value: sealed-state, jsonPath: multiroomClaimCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: structureProtocolVersion, expected: 3 }
+      - { type: value.json, value: formed-state, jsonPath: claimProtocolVersion, expected: 3 }
+      - { type: value.json, value: formed-state, jsonPath: structureCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: claimCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: matchedCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: multiroomStructureCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: multiroomClaimCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: ownershipMatchCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: readyHullCount, operator: gte, expected: 1 }
+      - { type: value.json, value: formed-state, jsonPath: "structureGeometry.0.valid", expected: true }
+      - { type: value.json, value: formed-state, jsonPath: "structureGeometry.0.expectedRooms", operator: gte, expected: 2 }
+      - { type: log.absent, pattern: "Failed to initialize Rooms|Failed to initialize Parcels|ObjectShare.*already" }
+
+  - id: restart
+    name: Preserve the matched structure and parcel across a clean restart
+    timeoutSeconds: 420
+    actions:
+      - { type: server.restart, reconnect: true }
+      - { type: wait.duration, seconds: 8 }
+      - { type: adapter.invoke, adapter: civilization, operation: inspect, as: restarted-state }
+    assertions:
+      - { type: value.json, value: restarted-state, jsonPath: matchedCount, operator: gte, expected: 1 }
+      - type: value.json
+        value: restarted-state
+        jsonPath: multiroomStructureCount
+        operator: gte
+        expected: 1
+      - { type: value.json, value: restarted-state, jsonPath: multiroomClaimCount, operator: gte, expected: 1 }
+      - { type: value.json, value: restarted-state, jsonPath: readyHullCount, operator: gte, expected: 1 }
+      - { type: log.absent, pattern: "wrong thread|ConcurrentModificationException|Failed to load room|failed to load claim" }
+
+  - id: stop
+    name: Stop after success or failure
+    always: true
+    actions:
+      - { type: server.stop }
