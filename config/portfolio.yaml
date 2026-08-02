@@ -4,6 +4,8 @@ variables:
   cofferRepository: ../coffer
   keepgearRepository: ../KeepGear/fabric
   kinshipRepository: ../kinship
+  partiesRepository: ../parties
+  chorusRepository: ../chorus
   blindfoldRepository: ../LocalBlindness
   ouroveilRepository: ../world-border-veil
   mehenRepository: ../mehen
@@ -112,6 +114,31 @@ targets:
       - kinship/functional-smoke
       - kinship/thread-lifecycle-regressions
       - kinship/stress-soak
+
+  - id: parties
+    title: Parties with Chorus 0.2.1
+    repository: "${partiesRepository}"
+    testedVersion: 0.2.0
+    build:
+      - name: Chorus 0.2.1 clean build, tests, and packaged API
+        repository: "${chorusRepository}"
+        command: ["${platform.gradleWrapper}", clean, check, build]
+        java: 25
+        timeoutMinutes: 30
+      - name: Parties clean unit, integration, formatting, and packaging gates
+        command:
+          - "${platform.gradleWrapper}"
+          - "-Pchorus_api_jar=${chorusRepository}/minecraft-fabric/build/libs/chorus-0.2.1.jar"
+          - clean
+          - check
+          - spotlessCheck
+          - build
+        java: 25
+        timeoutMinutes: 30
+    artifacts:
+      parties: { path: minecraft-fabric/build/libs/parties-0.2.0.jar }
+      chorus: { path: minecraft-fabric/build/libs/chorus-0.2.1.jar, repository: "${chorusRepository}" }
+    scenarios: [parties/session-acceptance]
 
   - id: mehen
     title: Mehen

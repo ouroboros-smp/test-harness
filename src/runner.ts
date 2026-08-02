@@ -715,6 +715,34 @@ export async function waitUntilAssertion(
   }
 }
 
+export async function retryClientConnection(
+  operation: (timeoutMs: number, attempt: number) => Promise<void>,
+  timeoutMs: number,
+  maxAttempts = 3,
+  retryDelayMs = 250,
+): Promise<number> {
+  const started = Date.now();
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const remainingMs = Math.max(1, timeoutMs - (Date.now() - started));
+    try {
+      await operation(remainingMs, attempt);
+      return attempt;
+    } catch (error) {
+      const ambiguousPreSpawnDisconnect = error instanceof HarnessError
+        && error.code === "CLIENT_CONNECTION_REJECTED"
+        && /"reason"\s*:\s*null/.test(error.message);
+      if (!ambiguousPreSpawnDisconnect || attempt === maxAttempts) throw error;
+
+      const remainingAfterFailure = timeoutMs - (Date.now() - started);
+      if (remainingAfterFailure <= retryDelayMs) throw error;
+      if (retryDelayMs > 0) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, retryDelayMs));
+      }
+    }
+  }
+  throw new HarnessError("CLIENT_CONNECTION_FAILED", "Client connection attempts were exhausted");
+}
+
 export function extractValue(value: JsonValue | undefined, path: string): JsonValue {
   const extracted = getJsonPath(value ?? null, path);
   if (extracted === undefined) {
@@ -1026,8 +1054,10 @@ async function copyIfExists(source: string, destination: string): Promise<void> 
 }
 
 async function connectClient(context: RunnerContext, client: ProtocolClient, reconnect = false, timeoutMs = 30_000): Promise<void> {
-  if (reconnect) await client.reconnect(timeoutMs);
-  else await client.connect(timeoutMs);
+  await retryClientConnection(async (remainingMs, attempt) => {
+    if (reconnect && attempt === 1) await client.reconnect(remainingMs);
+    else await client.connect(remainingMs);
+  }, timeoutMs);
   if (client.spec.gameMode) {
     await context.bridge.request("POST", "/v1/command", {
       command: `gamemode ${client.spec.gameMode} ${client.spec.username}`,

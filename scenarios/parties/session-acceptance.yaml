@@ -1,0 +1,241 @@
+schemaVersion: 1
+id: parties/session-acceptance
+title: Parties session lifecycle, ranks, Chorus interop, and operator acceptance
+description: Exercises the packaged Parties and Chorus jars with real clients across role changes, invite limits, disconnect grace, destructive confirmations, admin controls, chat, and restart.
+issues: [2, 3, 5, 6, 9, 10, 11, 12, 13]
+tags: [parties, chorus, multi-client, permissions, reconnect, restart, admin]
+artifacts:
+  parties: { required: true, description: Packaged Parties Fabric 26.2 server jar }
+  chorus: { required: true, description: Packaged Chorus 0.2.1 server jar }
+clients:
+  - { name: leader, username: PartyLead }
+  - { name: officer, username: PartyOfficer, tracePackets: true }
+  - { name: member, username: PartyMember }
+  - { name: guest, username: PartyGuest }
+  - { name: rival, username: PartyRival }
+  - { name: admin, username: PartyAdmin }
+  - { name: ui, username: PartyUi, chorusUi: true }
+server:
+  memoryMb: 1536
+  startupTimeoutSeconds: 300
+  shutdownTimeoutSeconds: 60
+  reuseWorldOnRestart: true
+steps:
+  - id: configure
+    name: Configure a narrow invite cap and short disconnect grace for bounded acceptance
+    actions:
+      - type: file.write
+        path: config/parties/parties.yml
+        content: |
+          max_size: 6
+          invite_expiry_seconds: 2
+          max_invites_per_player: 1
+          member_grace_seconds: 3
+      - type: file.write
+        path: config/chorus/chorus.yml
+        content: |
+          client_protocol:
+            enabled: true
+
+  - id: start
+    name: Boot packaged Parties with Chorus and seven real clients
+    timeoutSeconds: 360
+    actions:
+      - { type: server.start }
+      - { type: client.command, client: guest, command: "party admin list" }
+      - type: wait.until
+        assertion: { type: client.event, client: guest, event: message, pattern: "Unknown or incomplete command|Incorrect argument" }
+      - { type: console.command, command: "op PartyAdmin" }
+    assertions:
+      - { type: log.present, pattern: "Parties session started with empty in-memory state", count: 1, operator: gte }
+      - { type: log.absent, pattern: "Could not load entrypoint|NoSuchMethodError|ClassNotFoundException" }
+      - { type: client.event, client: guest, event: message, pattern: "Unknown or incomplete command|Incorrect argument" }
+
+  - id: chorus_refresh
+    name: Refresh a negotiated Chorus UI channel table on every membership transition
+    actions:
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 1, operator: gte }
+      - { type: client.command, client: ui, command: "party create" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 2, operator: gte }
+      - { type: client.command, client: ui, command: "party disband" }
+      - { type: client.command, client: ui, command: "party disband confirm" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 3, operator: gte }
+      - { type: client.command, client: leader, command: "party create" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "Party created" }
+      - { type: client.command, client: leader, command: "party invite PartyUi" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: message, pattern: "PartyLead invited you" }
+      - { type: client.command, client: ui, command: "party accept PartyLead" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 4, operator: gte }
+      - { type: client.command, client: leader, command: "p chorus-ui-structured-4c2e" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:msg" }
+      - { type: client.command, client: ui, command: "party leave" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 5, operator: gte }
+      - { type: client.command, client: leader, command: "party invite PartyUi" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: message, pattern: "PartyLead invited you", count: 2, operator: gte }
+      - { type: client.command, client: ui, command: "party accept PartyLead" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 6, operator: gte }
+      - { type: client.command, client: leader, command: "party kick PartyUi" }
+      - type: wait.until
+        assertion: { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 7, operator: gte }
+    assertions:
+      - { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:channels", count: 7, operator: gte }
+      - { type: client.event, client: ui, event: diagnostic, pattern: "custom payload.*chorus:msg" }
+      - { type: client.event, client: ui, event: message, pattern: "You were kicked from the party" }
+
+  - id: roles
+    name: Create a party, appoint an officer, and add an ordinary member
+    actions:
+      - { type: client.command, client: leader, command: "party invite PartyOfficer" }
+      - type: wait.until
+        assertion: { type: client.event, client: officer, event: message, pattern: "PartyLead invited you" }
+      - { type: client.command, client: officer, command: "party accept PartyLead" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "PartyOfficer joined the party" }
+      - { type: client.command, client: leader, command: "party promote PartyOfficer" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "PartyOfficer is now an officer" }
+      - type: wait.until
+        assertion: { type: client.event, client: officer, event: diagnostic, pattern: "declare commands packet", count: 3, operator: gte }
+      - { type: client.command, client: officer, command: "party invite PartyMember" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "PartyOfficer invited you" }
+      - { type: client.command, client: member, command: "party accept PartyOfficer" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "PartyMember joined the party" }
+      - { type: client.command, client: leader, command: "party list" }
+    assertions:
+      - { type: client.event, client: leader, event: message, pattern: "PartyOfficer is now an officer" }
+      - { type: client.event, client: leader, event: message, pattern: "Party \\(3/6\\)" }
+      - { type: client.event, client: leader, event: message, pattern: "PartyOfficer.*officer" }
+
+  - id: chorus
+    name: Route party chat through packaged Chorus only to current party members
+    actions:
+      - { type: client.command, client: leader, command: "p harness-party-chat-7f9d" }
+    assertions:
+      - { type: client.event, client: officer, event: message, pattern: "harness-party-chat-7f9d" }
+      - { type: client.event, client: member, event: message, pattern: "harness-party-chat-7f9d" }
+      - { type: client.event, client: guest, event: message, pattern: "harness-party-chat-7f9d", count: 0, operator: equals }
+
+  - id: invite_cap_and_officer
+    name: Enforce the per-invitee cap and officer kick hierarchy
+    actions:
+      - { type: client.command, client: member, command: "party invite PartyGuest" }
+      - { type: client.command, client: officer, command: "party invite PartyGuest" }
+      - type: wait.until
+        assertion: { type: client.event, client: guest, event: message, pattern: "PartyOfficer invited you" }
+      - { type: client.command, client: rival, command: "party create" }
+      - type: wait.until
+        assertion: { type: client.event, client: rival, event: message, pattern: "Party created" }
+      - { type: client.command, client: rival, command: "party invite PartyGuest" }
+      - type: wait.until
+        assertion: { type: client.event, client: rival, event: message, pattern: "too many pending party invites" }
+      - { type: client.command, client: officer, command: "party kick PartyLead" }
+      - type: wait.until
+        assertion: { type: client.event, client: officer, event: message, pattern: "cannot kick the party leader" }
+      - { type: client.command, client: officer, command: "party kick PartyMember" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "You were kicked from the party" }
+      - { type: wait.duration, milliseconds: 2250 }
+      - { type: client.command, client: rival, command: "party invite PartyGuest" }
+    assertions:
+      - { type: client.event, client: member, event: message, pattern: "Unknown or incomplete command|Incorrect argument" }
+      - { type: client.event, client: rival, event: message, pattern: "too many pending party invites" }
+      - { type: client.event, client: officer, event: message, pattern: "cannot kick the party leader" }
+      - { type: client.event, client: member, event: message, pattern: "You were kicked from the party" }
+      - { type: client.event, client: rival, event: message, pattern: "Invited PartyGuest", count: 1, operator: gte }
+
+  - id: grace_restore
+    name: Show offline grace to an operator and restore membership on a timely reconnect
+    actions:
+      - { type: client.disconnect, client: officer }
+      - type: wait.until
+        assertion: { type: log.present, pattern: "PartyOfficer left the game" }
+      - { type: client.command, client: admin, command: "party admin info PartyOfficer" }
+      - type: wait.until
+        assertion: { type: client.event, client: admin, event: message, pattern: "PartyOfficer.*offline, [0-9]+s grace" }
+      - { type: client.reconnect, client: officer }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "PartyOfficer rejoined the party" }
+    assertions:
+      - { type: client.event, client: admin, event: message, pattern: "PartyOfficer.*offline, [0-9]+s grace" }
+      - { type: client.event, client: leader, event: message, pattern: "PartyOfficer rejoined the party" }
+
+  - id: grace_expiry
+    name: Remove an overdue disconnected officer and leave the leader's party intact
+    timeoutSeconds: 30
+    actions:
+      - { type: client.disconnect, client: officer }
+      - { type: wait.duration, seconds: 4 }
+      - { type: client.reconnect, client: officer }
+      - { type: client.command, client: leader, command: "party list" }
+    assertions:
+      - { type: client.event, client: leader, event: message, pattern: "PartyOfficer left after their disconnect grace expired" }
+      - { type: client.event, client: leader, event: message, pattern: "Party \\(1/6\\)" }
+
+  - id: player_disband
+    name: Require a live two-step confirmation for a leader disband
+    actions:
+      - { type: client.command, client: rival, command: "party disband" }
+      - { type: client.command, client: rival, command: "party list" }
+      - { type: client.command, client: rival, command: "party disband confirm" }
+    assertions:
+      - { type: client.event, client: rival, event: message, pattern: "Run /party disband confirm within 30 seconds" }
+      - { type: client.event, client: rival, event: message, pattern: "Party \\(1/6\\)" }
+      - { type: client.event, client: rival, event: message, pattern: "party was disbanded" }
+
+  - id: operator_surface
+    name: List, inspect, and two-step disband the remaining live party as an operator
+    actions:
+      - { type: client.command, client: admin, command: "party admin list" }
+      - { type: client.command, client: admin, command: "party admin info PartyLead" }
+      - { type: client.command, client: admin, command: "party admin disband PartyLead" }
+      - { type: client.command, client: leader, command: "party list" }
+      - { type: client.command, client: admin, command: "party admin disband PartyLead confirm" }
+    assertions:
+      - { type: client.event, client: admin, event: message, pattern: "Live parties" }
+      - { type: client.event, client: admin, event: message, pattern: "PartyLead.*1 members.*1 online" }
+      - { type: client.event, client: admin, event: message, pattern: "Run /party admin disband PartyLead confirm within 30 seconds" }
+      - { type: client.event, client: leader, event: message, pattern: "Party \\(1/6\\)" }
+      - { type: client.event, client: leader, event: message, pattern: "operator disbanded the party" }
+
+  - id: restart
+    name: Prove parties are session-scoped and command trees reshape after restart
+    timeoutSeconds: 360
+    actions:
+      - { type: client.command, client: leader, command: "party create" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "Party created", count: 2, operator: gte }
+      - { type: client.command, client: leader, command: "party invite PartyMember" }
+      - type: wait.until
+        assertion: { type: client.event, client: member, event: message, pattern: "PartyLead invited you" }
+      - { type: client.command, client: member, command: "party accept PartyLead" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "PartyMember joined the party", count: 2, operator: gte }
+      - { type: client.command, client: leader, command: "party list" }
+      - type: wait.until
+        assertion: { type: client.event, client: leader, event: message, pattern: "Party \\(2/6\\)" }
+      - { type: server.restart, reconnect: true }
+      - { type: client.command, client: admin, command: "party admin list" }
+      - { type: client.command, client: leader, command: "party list" }
+    assertions:
+      - { type: client.event, client: admin, event: message, pattern: "No live parties" }
+      - { type: client.event, client: leader, event: message, pattern: "Unknown or incomplete command|Incorrect argument" }
+      - { type: log.present, pattern: "Parties session started with empty in-memory state", count: 2, operator: gte }
+      - { type: log.absent, pattern: "world[/\\\\]parties|parties.*\\.json" }
+
+  - id: stop
+    name: Clean shutdown after packaged interoperability acceptance
+    always: true
+    actions:
+      - { type: server.stop }

@@ -11,6 +11,7 @@ import {
   extractValue,
   lineMatcher,
   readClientStateValue,
+  retryClientConnection,
   runScenario,
   samplePerformance,
   waitUntilAssertion,
@@ -73,6 +74,36 @@ test("wait.until timeout reports the last observed assertion failure", async () 
     }, 5, 1),
     /last observed value/,
   );
+});
+
+test("client connection retries an ambiguous pre-spawn disconnect", async () => {
+  let attempts = 0;
+  const completedAttempt = await retryClientConnection(async () => {
+    attempts++;
+    if (attempts < 3) {
+      throw new HarnessError("CLIENT_CONNECTION_REJECTED", 'owner: {"reason":null}');
+    }
+  }, 1_000, 3, 0);
+
+  assert.equal(completedAttempt, 3);
+  assert.equal(attempts, 3);
+});
+
+test("client connection does not retry explicit kicks or protocol failures", async () => {
+  for (const failure of [
+    new HarnessError("CLIENT_CONNECTION_REJECTED", 'owner: {"reason":"Server closed"}'),
+    new HarnessError("CLIENT_PROTOCOL_ERROR", "invalid response"),
+  ]) {
+    let attempts = 0;
+    await assert.rejects(
+      retryClientConnection(async () => {
+        attempts++;
+        throw failure;
+      }, 1_000, 3, 0),
+      (error: unknown) => error === failure,
+    );
+    assert.equal(attempts, 1);
+  }
 });
 
 test("wait.until polls a file assertion until the file appears", async () => {

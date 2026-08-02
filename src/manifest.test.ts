@@ -123,3 +123,15 @@ test("the published schema rejects unknown fields and invalid Minecraft username
   assert.ok(failures.some((failure) => failure.includes("additional properties")));
   assert.ok(failures.some((failure) => failure.includes("pattern")));
 });
+
+test("the published schema accepts opt-in Chorus UI negotiation and packet tracing", () => {
+  const scenario = {
+    schemaVersion: 1,
+    id: "schema/chorus-ui",
+    title: "Chorus UI schema fixture",
+    issues: [2],
+    clients: [{ name: "ui", username: "ChorusUiBot", chorusUi: true, tracePackets: true }],
+    steps: [{ id: "check", name: "Check", assertions: [{ type: "log.absent", pattern: "ERROR" }] }],
+  };
+  assert.deepEqual(validateScenario(scenario), []);
+});

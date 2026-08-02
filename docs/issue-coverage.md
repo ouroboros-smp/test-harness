@@ -14,6 +14,7 @@ harness-only bridge on 2026-07-18.
 | #5 | Pinnable composite action and stable outputs/artifacts | `action.yml`, `harness/action-contract` |
 | #6 | Kinship server-thread/barrier/logout/generation regressions | `kinship/thread-lifecycle-regressions` |
 | #7–#16 | Rooms Fabric discovery, diagnostics, permissions, persistence, reload, restart, and lifecycle behavior | `rooms/runtime-acceptance` |
+| Parties #2, #3, #5, #6, #9–#13 | Session-only parties, centralized fan-out and Chorus refresh, officers, admin controls, confirmation, invite caps, server-thread command shaping, and disconnect grace | `parties/session-acceptance` |
 | #17 | KeepGear ten-case release acceptance suite | `keepgear/acceptance` |
 | #18–#19 | Coffer placement, access modes, trust, keys, and restart persistence | `coffer/access-persistence`; legacy safety net `coffer/runtime-acceptance` |
 | #20 | Double-chest pair placement, synchronization, and restart | `coffer/double-chest-lifecycle`; legacy safety net `coffer/runtime-acceptance` |

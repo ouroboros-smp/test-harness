@@ -38,6 +38,16 @@ export function connectionStateAfterEvent(current: boolean, eventType: string): 
   return current;
 }
 
+export function retainClientStderr(line: string, tracePackets: boolean): boolean {
+  if (!line.trim()) return false;
+  if (!tracePackets) return true;
+
+  const isRoutineReceivedPacket = line.includes(" DEBUG azalea_client::plugins::packet::game: Got ");
+  return !isRoutineReceivedPacket
+    || line.includes("Got custom payload packet")
+    || line.includes("Got declare commands packet");
+}
+
 export class ProtocolClient {
   private child: ChildProcessWithoutNullStreams | undefined;
   private isConnected = false;
@@ -64,11 +74,19 @@ export class ProtocolClient {
       throw new HarnessError("CLIENT_BINARY_MISSING", `Headless client not found at ${executable}; run npm run build:client`);
     }
     this.expectedExit = false;
-    const child = spawn(executable, [
+    const clientArguments = [
       "--host", this.host,
       "--port", String(this.port),
       "--username", this.spec.username,
-    ], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    ];
+    const tracePackets = Boolean(this.spec.tracePackets || this.spec.chorusUi);
+    const child = spawn(executable, clientArguments, {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: tracePackets
+        ? { ...process.env, RUST_LOG: "azalea_client::plugins::packet::game=debug" }
+        : process.env,
+    });
     this.child = child;
 
     let resolveSpawn!: () => void;
@@ -88,13 +106,15 @@ export class ProtocolClient {
       }
     });
     stderr.on("line", (line) => {
-      if (line.trim()) this.record("diagnostic", { stream: "stderr", message: line });
+      if (retainClientStderr(line, tracePackets)) {
+        this.record("diagnostic", { stream: "stderr", message: line });
+      }
     });
     child.once("error", (error) => rejectSpawn(error));
     child.once("exit", (code, signal) => {
       const wasConnected = this.isConnected;
       this.isConnected = false;
-      this.child = undefined;
+      if (this.child === child) this.child = undefined;
       const error = new HarnessError("CLIENT_EXITED", `${this.spec.name} client exited with code ${String(code)} signal ${String(signal)}`);
       if (!wasConnected && !this.expectedExit) rejectSpawn(error);
       for (const pending of this.pending.values()) pending.reject(error);
@@ -104,9 +124,17 @@ export class ProtocolClient {
 
     try {
       await withTimeout(spawned, timeoutMs, `client ${this.spec.name} connection (${this.version})`);
+      if (this.spec.chorusUi) await this.request("chorus_negotiate");
     } catch (error) {
       this.expectedExit = true;
       child.kill();
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          await withTimeout(once(child, "exit"), 5_000, `client ${this.spec.name} failed-connection cleanup`);
+        } catch {
+          child.kill();
+        }
+      }
       throw error;
     }
   }

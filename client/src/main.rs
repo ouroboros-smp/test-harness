@@ -1,7 +1,8 @@
 use std::io::{self, Write};
 
 use azalea::{
-    BlockPos, Client, Event, SprintDirection, WalkDirection,
+    BlockPos, Client, Event, Identifier, SprintDirection, WalkDirection,
+    buf::UnsizedByteArray,
     core::{direction::Direction, game_type::GameMode, position::Vec3},
     entity::inventory::Inventory,
     interact::BlockStatePredictionHandler,
@@ -10,6 +11,7 @@ use azalea::{
     protocol::packets::{
         PROTOCOL_VERSION,
         game::s_client_command::{Action as ClientCommandAction, ServerboundClientCommand},
+        game::s_custom_payload::ServerboundCustomPayload,
         game::s_interact::InteractionHand,
         game::s_use_item_on::{BlockHit, ServerboundUseItemOn},
     },
@@ -21,6 +23,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 const MINECRAFT_VERSION: &str = "26.2";
 const AZALEA_REVISION: &str = "c35b57ebf82fa8b26ada77ab9eb795e3827d6c16";
+const CHORUS_PROTOCOL_VERSION: u8 = 1;
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -180,12 +183,35 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
+fn negotiate_chorus_ui(client: &Client) {
+    client.write_packet(ServerboundCustomPayload {
+        identifier: Identifier::from("minecraft:register"),
+        data: UnsizedByteArray::from(chorus_registration_data()),
+    });
+    client.write_packet(ServerboundCustomPayload {
+        identifier: Identifier::from("chorus:hello"),
+        data: UnsizedByteArray::from(vec![CHORUS_PROTOCOL_VERSION]),
+    });
+}
+
+fn chorus_registration_data() -> Vec<u8> {
+    b"chorus:offer\0chorus:channels\0chorus:msg".to_vec()
+}
+
 fn execute(client: &Client, request: Request) -> Result<(Value, bool)> {
     let data = request.data;
     let result = match request.command.as_str() {
         "chat" => {
             client.chat(required_string(&data, "message")?);
             Value::Null
+        }
+        "chorus_negotiate" => {
+            negotiate_chorus_ui(client);
+            emit_event(
+                "chorus_wire",
+                json!({ "stage": "hello_sent", "version": CHORUS_PROTOCOL_VERSION }),
+            );
+            json!({ "version": CHORUS_PROTOCOL_VERSION })
         }
         "look" => {
             client.set_direction(
@@ -493,6 +519,15 @@ mod tests {
         assert_eq!(MINECRAFT_VERSION, "26.2");
         assert_eq!(PROTOCOL_VERSION, 776);
         assert_eq!(AZALEA_REVISION.len(), 40);
+        assert_eq!(CHORUS_PROTOCOL_VERSION, 1);
+    }
+
+    #[test]
+    fn advertises_every_chorus_ui_play_channel() {
+        assert_eq!(
+            chorus_registration_data(),
+            b"chorus:offer\0chorus:channels\0chorus:msg"
+        );
     }
 
     #[test]
