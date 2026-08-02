@@ -49,7 +49,9 @@
           "name": { "type": "string" },
           "username": { "type": "string", "pattern": "^[A-Za-z0-9_]{3,16}$" },
           "gameMode": { "enum": ["survival", "creative", "adventure", "spectator"] },
-          "connectOnStart": { "type": "boolean" }
+          "connectOnStart": { "type": "boolean" },
+          "chorusUi": { "type": "boolean" },
+          "tracePackets": { "type": "boolean" }
         }
       }
     },

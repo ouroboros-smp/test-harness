@@ -29,7 +29,7 @@ test("portfolio catalog maps every maintained scenario exactly once", async () =
       );
     }
   }
-  assert.equal(manifest.targets.length, 13);
+  assert.equal(manifest.targets.length, 14);
   assert.equal(manifest.targets.find((target) => target.id === "test-harness")?.repository, ".");
 });
 

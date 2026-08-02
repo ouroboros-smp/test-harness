@@ -50,8 +50,13 @@ steps:
 | State | `file.write`, `file.delete`, `sqlite.query`, `value.extract`, `snapshot.capture` |
 | Load | `soak.run` with a repeatable nested `behavior` action list |
 | Extension | `adapter.invoke` with nested standard actions or a registered bridge adapter |
-| Service | `service.start`, `service.exec`, `service.stop` manage isolated Docker dependencies and retain logs |
 | External suite | `process.exec` runs an explicit command array in a declared working directory and captures its output as evidence |
+| Service | `service.start`, `service.exec`, `service.stop` manage isolated Docker dependencies and retain logs |
+
+Client specs may opt into `chorusUi: true` to negotiate the Chorus wire protocol
+and expose received channel/message payloads as packet-trace diagnostics. Set
+`tracePackets: true` independently when a scenario needs to observe command-tree
+resends or another clientbound packet without negotiating Chorus.
 
 Values may reference `${run.directory}`, `${artifact.directory}`,
 `${server.port}`, `${bridge.port}`, `${port.NAME}`, `${artifact.NAME}`,

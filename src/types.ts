@@ -26,6 +26,8 @@ export interface ClientSpec {
   username: string;
   gameMode?: "survival" | "creative" | "adventure" | "spectator";
   connectOnStart?: boolean;
+  chorusUi?: boolean;
+  tracePackets?: boolean;
 }
 
 export interface ServerSpec {
