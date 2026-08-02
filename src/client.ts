@@ -114,7 +114,7 @@ export class ProtocolClient {
     child.once("exit", (code, signal) => {
       const wasConnected = this.isConnected;
       this.isConnected = false;
-      this.child = undefined;
+      if (this.child === child) this.child = undefined;
       const error = new HarnessError("CLIENT_EXITED", `${this.spec.name} client exited with code ${String(code)} signal ${String(signal)}`);
       if (!wasConnected && !this.expectedExit) rejectSpawn(error);
       for (const pending of this.pending.values()) pending.reject(error);
@@ -128,6 +128,13 @@ export class ProtocolClient {
     } catch (error) {
       this.expectedExit = true;
       child.kill();
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          await withTimeout(once(child, "exit"), 5_000, `client ${this.spec.name} failed-connection cleanup`);
+        } catch {
+          child.kill();
+        }
+      }
       throw error;
     }
   }
