@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, crucible-pc]
+    runs-on: onyx-ephemeral
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -62,7 +62,7 @@ jobs:
 
   live-smoke:
     needs: verify
-    runs-on: [self-hosted, crucible-pc]
+    runs-on: onyx-ephemeral
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -94,7 +94,7 @@ jobs:
 
   rooms-hull-contract:
     needs: verify
-    runs-on: [self-hosted, crucible-pc]
+    runs-on: onyx-ephemeral
     timeout-minutes: 35
     env:
       ROOMS_COMMIT: f4f2bd68e55074a137bd93bc75ed2c959ef62331
@@ -155,7 +155,7 @@ jobs:
 
   parcels-offline-protection:
     needs: verify
-    runs-on: [self-hosted, crucible-pc]
+    runs-on: onyx-ephemeral
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -216,7 +216,7 @@ jobs:
 
   patrol-native-afk-contract:
     needs: verify
-    runs-on: [self-hosted, crucible-pc]
+    runs-on: onyx-ephemeral
     timeout-minutes: 60
     env:
       PATROL_COMMIT: 3fc68b10cdebfe1cd1b3f84ba39ffd85c235750d

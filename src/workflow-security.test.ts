@@ -42,8 +42,8 @@ test("GitHub Actions use the crucible runner without Gradle cache post-hooks", a
     for (const declaration of runnerDeclarations) {
       assert.equal(
         declaration[1]?.trim(),
-        "[self-hosted, crucible-pc]",
-        `${name} must use the dedicated crucible-pc runner`,
+        "onyx-ephemeral",
+        `${name} must use the onyx-ephemeral autoscaling runners`,
       );
     }
     assert.doesNotMatch(
