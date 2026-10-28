@@ -150,3 +150,7 @@ Consumer repositories can pin this repository as a composite action:
 
 Stable outputs are `passed`, `report`, `html`, `junit`, `server-log`, and
 `artifact-directory`. The action uploads evidence even when the scenario fails.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
